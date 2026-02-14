@@ -56,6 +56,13 @@ function getCandidateTemplates(text: string, senderHint?: string): CourierTempla
   return [...senderMatched, ...bodyMatched, ...rest];
 }
 
+// 清洗提取到的地点文本，去除开头的方向词前缀
+const LOCATION_PREFIX_PATTERN = /^(?:到|至|在|前往|去)\s*/;
+
+function cleanLocation(location: string): string {
+  return location.replace(LOCATION_PREFIX_PATTERN, '').trim();
+}
+
 // 尝试用单个模板匹配文本
 function tryMatchTemplate(text: string, template: CourierTemplate): TemplateMatchResult {
   for (const bodyPattern of template.bodyPatterns) {
@@ -72,7 +79,7 @@ function tryMatchTemplate(text: string, template: CourierTemplate): TemplateMatc
     const location = bodyPattern.groups.location
       ? match[bodyPattern.groups.location]?.trim()
       : undefined;
-    const resolvedLocation = location || extractLocationFromText(text) || "未知";
+    const resolvedLocation = cleanLocation(location || extractLocationFromText(text) || "未知");
 
     // 从模板捕获组获取地址，若无则回退到通用提取
     const address = bodyPattern.groups.address

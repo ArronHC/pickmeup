@@ -140,8 +140,9 @@ export const extractLocationFromText = (text: string): string | undefined => {
     return storedMatch[1].trim();
   }
 
+  // 匹配方向性前缀后的地点（"到""至""在""前往"后面的内容）
   const directionalPattern =
-    /(?:到|至|在|前往)\s*([^，。；,;\n]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
+    /(?:到|至|在|前往)\s*([^，。；,;\n到至在]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
   const directionalMatch = directionalPattern.exec(text);
   if (directionalMatch?.[1]) {
     return directionalMatch[1].trim();
