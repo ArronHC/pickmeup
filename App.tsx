@@ -8,6 +8,7 @@ import PackageCard from './components/PackageCard';
 import AddPackageModal from './components/AddPackageModal';
 import SmsImportModal from './components/SmsImportModal';
 import Onboarding from './components/Onboarding';
+import PickupHeatmap from './components/PickupHeatmap';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const SMS_AUTO_IMPORT_LAST_SYNC_KEY = 'pickmeup_sms_last_sync_ts';
@@ -516,6 +517,7 @@ const App: React.FC = () => {
 
         {/* Main List */}
         <main className="px-4 pt-4 pb-32 flex-1 overflow-x-hidden">
+          {filter === 'active' && <PickupHeatmap packages={packages} />}
           <AnimatePresence mode='popLayout'>
           {filteredPackages.length === 0 ? (
             <motion.div 
