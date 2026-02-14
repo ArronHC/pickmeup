@@ -393,9 +393,12 @@ const App: React.FC = () => {
         {/* Glass Header */}
         <header className="sticky top-0 z-10 px-5 pt-safe-top pb-4 glass-panel transition-colors duration-300">
           <div className="flex justify-between items-center mb-4 mt-2">
-            <div>
-              <h1 className="text-[32px] font-bold text-gray-900 dark:text-white tracking-tight leading-tight transition-colors">取件助手</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 font-medium transition-colors">PickMeUp</p>
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="取件助手" className="w-12 h-12 rounded-[14px] shadow-sm" />
+              <div>
+                <h1 className="text-[32px] font-bold text-gray-900 dark:text-white tracking-tight leading-tight transition-colors">取件助手</h1>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium transition-colors">PickMeUp</p>
+              </div>
               {isNative && (isAutoImporting || autoImportNotice) && (
                 <p className="text-xs text-blue-600 dark:text-blue-300 mt-1 font-medium transition-colors">
                   {isAutoImporting ? '正在自动识别短信...' : autoImportNotice}
