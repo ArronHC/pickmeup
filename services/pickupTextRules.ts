@@ -115,7 +115,7 @@ export const extractPickupCode = (text: string): string | null => {
 export const extractLocationFromText = (text: string): string | undefined => {
   // 优先匹配"已存入""已放入""已投入"等前缀模式
   const storedPattern =
-    /(?:已存入|已放入|已投入|已投递至|已送达|已存放在|已放置于)\s*([^，。；,;\n]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
+    /(?:已存入|已放入|已投入|已投递至|已送达|已到达|已到|已存放在|已放置于)\s*([^，。；,;\n]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
   const storedMatch = storedPattern.exec(text);
   if (storedMatch?.[1]) {
     return storedMatch[1].trim();
