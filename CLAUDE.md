@@ -19,7 +19,7 @@
 | 样式方案 | Tailwind CSS | CDN 引入 |
 | 动画库 | framer-motion | ^12.31.0 |
 | 原生桥接 | Capacitor | ^8.0.2 |
-| AI 推理 | GitHub Models API (GPT-4o) | - |
+| 图片 OCR | Tesseract.js | ^5.1.1 |
 | CSS 工具 | clsx + tailwind-merge | ^2.1.1 / ^3.4.0 |
 
 ## 项目结构
@@ -37,10 +37,13 @@ pickmeup/
 │   ├── PackageCard.tsx         # 包裹卡片组件
 │   └── SmsImportModal.tsx      # 短信批量导入弹窗
 ├── services/                   # 服务层
-│   ├── geminiService.ts        # AI 信息提取服务（调用 GitHub Models API）
-│   ├── pickupTextRules.ts      # 取件码正则匹配与验证规则
+│   ├── courierTemplates.ts     # 快递公司短信模板库（10家快递）
+│   ├── extractionService.ts    # 统一信息提取入口（模板+规则+OCR）
+│   ├── ocrService.ts           # 本地 OCR 服务（Tesseract.js）
+│   ├── pickupTextRules.ts      # 取件码规则引擎（正则匹配/验证/启发式提取）
 │   ├── smsService.ts           # 短信读取服务（Capacitor 插件）
-│   └── storageService.ts       # 本地存储服务（localStorage）
+│   ├── storageService.ts       # 本地存储服务（localStorage）
+│   └── templateEngine.ts       # 模板匹配引擎
 ├── dist/                       # 构建输出目录
 ├── App.tsx                     # 主应用组件
 ├── index.tsx                   # React 入口
@@ -51,7 +54,6 @@ pickmeup/
 ├── vite.config.ts              # Vite 配置
 ├── tsconfig.json               # TypeScript 配置
 ├── package.json                # 项目依赖
-├── .env.local                  # 环境变量（API Key）
 ├── .gitignore                  # Git 忽略规则
 ├── metadata.json               # 应用元数据
 └── CLAUDE.md                   # 本文件
@@ -63,8 +65,10 @@ pickmeup/
 
 ```
 用户输入（文本/图片/短信）
-  → services/geminiService.ts（AI 提取）
-  → services/pickupTextRules.ts（本地规则校验/后备提取）
+  → services/extractionService.ts（统一入口）
+    → services/templateEngine.ts（模板匹配，优先）
+    → services/pickupTextRules.ts（规则兜底）
+    → services/ocrService.ts（图片 OCR 识别）
   → App.tsx handleAddPackage（去重 + 合并）
   → services/storageService.ts（localStorage 持久化）
   → components/PackageCard.tsx（UI 渲染）
@@ -89,11 +93,11 @@ interface PackageData {
 }
 ```
 
-### 信息提取策略（双重保障）
+### 信息提取策略（三层本地提取）
 
-1. **AI 提取（主路径）**: 调用 GitHub Models API (GPT-4o)，发送系统提示词要求返回 JSON
-2. **规则提取（后备路径）**: 使用 `pickupTextRules.ts` 中的正则表达式进行本地匹配
-3. **混合策略**: AI 返回结果经过 `parseJsonContent` 规范化，失败时回退到 `extractInfosHeuristically`
+1. **模板匹配（主路径）**: `templateEngine.ts` 使用 `courierTemplates.ts` 中 10 家快递公司的短信模板进行结构化提取
+2. **规则提取（兜底路径）**: `pickupTextRules.ts` 中的正则表达式和启发式算法进行通用匹配
+3. **图片 OCR**: `ocrService.ts` 使用 Tesseract.js 识别图片文字，再经过模板+规则提取
 
 ### 去重逻辑
 
@@ -104,7 +108,7 @@ interface PackageData {
 
 ### 命名约定
 
-- **文件名**: PascalCase 用于组件（`PackageCard.tsx`），camelCase 用于服务（`geminiService.ts`）
+- **文件名**: PascalCase 用于组件（`PackageCard.tsx`），camelCase 用于服务（`extractionService.ts`）
 - **组件**: 使用 `React.FC<Props>` 函数组件，PascalCase 命名
 - **接口**: PascalCase，以功能描述命名（`PackageData`、`ExtractedInfo`）
 - **枚举**: PascalCase 类型名，UPPER_SNAKE_CASE 枚举值
@@ -141,11 +145,7 @@ interface PackageData {
 
 ## 环境变量
 
-| 变量名 | 用途 | 必填 |
-|--------|------|------|
-| `VITE_GH_AI_KEY` | GitHub Models API Key | 是（三选一） |
-| `VITE_API_KEY` | 备用 API Key | 否 |
-| `VITE_OPENAI_API_KEY` | 备用 OpenAI API Key | 否 |
+当前项目无需外部 API Key，所有信息提取均在本地完成。
 
 ## 开发命令
 
@@ -175,13 +175,14 @@ npm run preview    # 预览生产构建
 
 当前项目未配置测试框架。新增功能时应考虑：
 - `pickupTextRules.ts` 中的正则规则适合单元测试
-- `geminiService.ts` 中的 JSON 解析逻辑适合单元测试
+- `templateEngine.ts` 中的模板匹配逻辑适合单元测试
+- `extractionService.ts` 中的提取流程适合集成测试
 - 组件交互适合使用 React Testing Library
 
 ## 注意事项
 
-- `.env.local` 包含 API Key，已在 `.gitignore` 中排除（`*.local`）
 - Tailwind CSS 通过 CDN 引入（`index.html` 中的 `<script>`），非 PostCSS 构建
 - `index.css` 中的 `@tailwind` 指令由 Vite 插件处理，与 CDN 配置共存
 - TypeScript 配置使用 `bundler` 模块解析，路径别名 `@/` 映射到项目根目录
-- `vite.config.ts` 将环境变量同时定义在 `process.env` 和 `import.meta.env` 上
+- 所有信息提取完全在本地完成，无外部 API 依赖
+- 图片识别使用 Tesseract.js WASM 引擎，支持中文简体和英文

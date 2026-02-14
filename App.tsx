@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PackageData, ExtractedInfo } from './types';
 import { loadPackages, savePackages } from './services/storageService';
 import { SmsReader, isNativePlatform } from './services/smsService';
-import { extractInfoFromText } from './services/geminiService';
+import { extractInfoFromText } from './services/extractionService';
+import { normalizePickupCode } from './services/pickupTextRules';
 import PackageCard from './components/PackageCard';
 import AddPackageModal from './components/AddPackageModal';
 import SmsImportModal from './components/SmsImportModal';
@@ -12,7 +13,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 const SMS_AUTO_IMPORT_LAST_SYNC_KEY = 'pickmeup_sms_last_sync_ts';
 const PICKED_UP_EXPIRES_IN_MS = 3 * 24 * 60 * 60 * 1000;
 
-const normalizePickupCode = (code: string) => code.replace(/\s+/g, '').toUpperCase().trim();
 const applyPickedUpExpiryDefaults = (data: PackageData[], now = Date.now()) =>
   data.map(pkg => {
     if (!pkg.isPickedUp) return pkg;

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ImportMethod, ExtractedInfo } from '../types';
-import { extractInfoFromText, extractInfosFromImage } from '../services/geminiService';
+import { extractInfoFromText, extractInfosFromImage } from '../services/extractionService';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AddPackageModalProps {

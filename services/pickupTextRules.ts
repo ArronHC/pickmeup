@@ -1,3 +1,5 @@
+import { ExtractedInfo } from '../types';
+
 const DELIVERY_KEYWORDS = [
   "取件码",
   "取货码",
@@ -56,8 +58,9 @@ const normalizeText = (text: string): string =>
 const containsAny = (text: string, keywords: string[]): boolean =>
   keywords.some((keyword) => text.includes(keyword.toLowerCase()));
 
-const normalizePickupCode = (code: string): string =>
-  code.replace(/\s*-\s*/g, "-").replace(/\s+/g, "").trim().toUpperCase();
+// 取件码规范化：去除空格、统一连字符格式、转大写
+export const normalizePickupCode = (code: string): string =>
+  code.replace(/\s*[-－]\s*/g, "-").replace(/\s+/g, "").trim().toUpperCase();
 
 export const isValidPickupCode = (code: string): boolean => {
   const normalized = normalizePickupCode(code);
@@ -106,4 +109,161 @@ export const extractPickupCode = (text: string): string | null => {
   }
 
   return null;
+};
+
+// 从文本中提取快递公司名称
+export const extractCourierFromText = (text: string): string | undefined => {
+  const source = text.toLowerCase();
+  if (source.includes("顺丰")) return "顺丰";
+  if (source.includes("中通")) return "中通";
+  if (source.includes("圆通")) return "圆通";
+  if (source.includes("韵达")) return "韵达";
+  if (source.includes("申通")) return "申通";
+  if (source.includes("极兔")) return "极兔";
+  if (source.includes("京东")) return "京东";
+  if (source.includes("邮政") || source.includes("ems")) return "邮政";
+  if (source.includes("丰巢")) return "丰巢";
+  if (source.includes("菜鸟")) return "菜鸟";
+  if (source.includes("百世")) return "百世";
+  if (source.includes("德邦")) return "德邦";
+  if (source.includes("天天")) return "天天";
+  return undefined;
+};
+
+// 从文本中提取取件地点
+export const extractLocationFromText = (text: string): string | undefined => {
+  // 优先匹配"已存入""已放入""已投入"等前缀模式
+  const storedPattern =
+    /(?:已存入|已放入|已投入|已投递至|已送达|已存放在|已放置于)\s*([^，。；,;\n]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
+  const storedMatch = storedPattern.exec(text);
+  if (storedMatch?.[1]) {
+    return storedMatch[1].trim();
+  }
+
+  const directionalPattern =
+    /(?:到|至|在|前往)\s*([^，。；,;\n]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
+  const directionalMatch = directionalPattern.exec(text);
+  if (directionalMatch?.[1]) {
+    return directionalMatch[1].trim();
+  }
+
+  const locationPattern =
+    /([^，。；,;\n]{2,40}(?:驿站|快递柜|代收点|服务站|自提柜|门店|站点|取件点))/g;
+  const locationMatch = locationPattern.exec(text);
+  if (locationMatch?.[1]) {
+    return locationMatch[1].trim();
+  }
+
+  return undefined;
+};
+
+// 从文本中提取详细地址
+export const extractAddressFromText = (text: string): string | undefined => {
+  const patterns = [
+    /(?:地址|取件地址|地点)[：:\s]*([^，。；;\n]{4,80})/i,
+    /位于([^，。；;\n]{4,80})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
+};
+
+// 对提取结果按取件码去重
+export const dedupeInfos = (infos: ExtractedInfo[]): ExtractedInfo[] => {
+  const seen = new Set<string>();
+  const result: ExtractedInfo[] = [];
+
+  for (const info of infos) {
+    const key = normalizePickupCode(info.pickupCode || "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push({ ...info, pickupCode: key });
+  }
+
+  return result;
+};
+
+// 从任意文本中提取所有取件码
+export const extractPickupCodesFromAnyText = (text: string): string[] => {
+  const codes: string[] = [];
+
+  const direct = extractPickupCode(text);
+  if (direct) {
+    const normalized = normalizePickupCode(direct);
+    if (isValidPickupCode(normalized)) {
+      codes.push(normalized);
+    }
+  }
+
+  const patterns = [
+    /(?:取件码|取货码|提货码|取件|取货|提货|凭)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,12})/gi,
+    /(\d{1,2}\s*[-－]\s*\d{1,2}\s*[-－]\s*\d{3,4})/g,
+    /(?:凭)[：:\s]*([A-Za-z0-9-]{4,12})/gi,
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null = pattern.exec(text);
+    while (match) {
+      const candidate = match[1];
+      if (candidate) {
+        const normalized = normalizePickupCode(candidate);
+        if (isValidPickupCode(normalized)) {
+          codes.push(normalized);
+        }
+      }
+      match = pattern.exec(text);
+    }
+  }
+
+  return dedupeInfos(
+    codes.map((code) => ({ pickupCode: code, location: "未知", courier: "未知" }))
+  ).map((info) => info.pickupCode);
+};
+
+// 启发式提取快递信息（规则兜底）
+export const extractInfosHeuristically = (
+  text: string,
+  opts?: {
+    strictMessageCheck?: boolean;
+    sourceText?: string;
+    fallbackPickupCode?: string | null;
+  }
+): ExtractedInfo[] => {
+  const strictMessageCheck = opts?.strictMessageCheck ?? false;
+  const sourceText = opts?.sourceText || text;
+
+  if (strictMessageCheck && !isLikelyPickupMessage(sourceText)) {
+    throw new Error("该短信不是快递取件通知");
+  }
+
+  const fallbackCode = opts?.fallbackPickupCode
+    ? normalizePickupCode(opts.fallbackPickupCode)
+    : null;
+
+  const extractedCodes = [
+    ...(fallbackCode ? [fallbackCode] : []),
+    ...extractPickupCodesFromAnyText(text),
+    ...extractPickupCodesFromAnyText(sourceText),
+  ];
+
+  const uniqueCodes = dedupeInfos(
+    extractedCodes.map((pickupCode) => ({ pickupCode, location: "未知", courier: "未知" }))
+  ).map((info) => info.pickupCode);
+
+  if (uniqueCodes.length === 0) {
+    throw new Error("识别失败：未提取到取件码");
+  }
+
+  const location = extractLocationFromText(text) || extractLocationFromText(sourceText) || "未知";
+  const courier = extractCourierFromText(text) || extractCourierFromText(sourceText) || "未知";
+  const address = extractAddressFromText(text) || extractAddressFromText(sourceText);
+
+  return uniqueCodes.map((pickupCode) => ({
+    pickupCode,
+    location,
+    courier,
+    ...(address ? { address } : {}),
+  }));
 };

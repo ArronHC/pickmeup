@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SmsReader, SmsMessage, isNativePlatform, formatSmsDate, extractPickupCodePreview } from '../services/smsService';
-import { extractInfoFromText } from '../services/geminiService';
+import { extractInfoFromText } from '../services/extractionService';
 import { ExtractedInfo } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 

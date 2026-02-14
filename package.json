@@ -12,12 +12,12 @@
     "@capacitor/android": "^8.0.2",
     "@capacitor/app": "^8.0.0",
     "@capacitor/core": "^8.0.2",
-    "@google/genai": "^1.39.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.31.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.0.2",
