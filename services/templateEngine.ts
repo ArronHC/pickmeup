@@ -6,7 +6,6 @@ import {
   isValidPickupCode,
   extractLocationFromText,
   extractAddressFromText,
-  extractCourierFromText,
 } from './pickupTextRules';
 
 export interface TemplateMatchResult {
@@ -14,7 +13,6 @@ export interface TemplateMatchResult {
   pickupCode?: string;
   location?: string;
   address?: string;
-  courier?: string;
 }
 
 // 通过模板匹配提取快递信息
@@ -87,15 +85,11 @@ function tryMatchTemplate(text: string, template: CourierTemplate): TemplateMatc
       : undefined;
     const resolvedAddress = address || extractAddressFromText(text);
 
-    // 快递公司：优先使用模板定义，也从文本中检测以防模板标记不精确
-    const courier = extractCourierFromText(text) || template.courier;
-
     return {
       matched: true,
       pickupCode,
       location: resolvedLocation,
       address: resolvedAddress,
-      courier,
     };
   }
 

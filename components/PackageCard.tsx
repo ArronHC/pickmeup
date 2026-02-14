@@ -61,13 +61,6 @@ const PackageCard: React.FC<PackageCardProps> = ({ pkg, onToggleStatus, onDelete
         {/* Left Side: Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
-            <span className={`text-[11px] font-bold px-2 py-1 rounded-md uppercase tracking-wide backdrop-blur-sm
-              ${pkg.isPickedUp 
-                ? 'bg-gray-200/50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400' 
-                : 'bg-blue-100/50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-              }`}>
-              {pkg.courier}
-            </span>
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{formattedDate}</span>
           </div>
           {pkg.isPickedUp && formattedExpiresAt && (

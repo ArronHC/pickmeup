@@ -14,7 +14,6 @@ export interface AutoImportedPackage {
     pickupCode: string;
     location: string;
     address?: string;
-    courier: string;
     timestamp: string;
     sourceTimestamp?: number;
     originalText: string;

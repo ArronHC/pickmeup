@@ -3,7 +3,6 @@ export interface PackageData {
   pickupCode: string;
   location: string;
   address?: string;
-  courier: string;
   timestamp: string; // ISO String
   originalText: string;
   isPickedUp: boolean;
@@ -21,6 +20,5 @@ export interface ExtractedInfo {
   pickupCode: string;
   location: string;
   address?: string;
-  courier: string;
   timestamp?: string;
 }

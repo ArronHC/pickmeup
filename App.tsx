@@ -139,7 +139,6 @@ const App: React.FC = () => {
       pickupCode: info.pickupCode,
       location: info.location,
       address: info.address,
-      courier: info.courier,
       timestamp: resolvedTimestamp,
       originalText: originalText,
       isPickedUp: false,
@@ -155,14 +154,10 @@ const App: React.FC = () => {
         (existing.location === '未知' || !existing.location) &&
         !!info.location &&
         info.location !== '未知';
-      const shouldUpgradeCourier =
-        (existing.courier === '未知' || !existing.courier) &&
-        !!info.courier &&
-        info.courier !== '未知';
       const shouldUpgradeAddress = !existing.address && !!info.address;
       const shouldUpgradeOriginalText = existing.originalText === '图片识别导入' && originalText !== '图片识别导入';
 
-      if (!(shouldUpgradeLocation || shouldUpgradeCourier || shouldUpgradeAddress || shouldUpgradeOriginalText)) {
+      if (!(shouldUpgradeLocation || shouldUpgradeAddress || shouldUpgradeOriginalText)) {
         return false;
       }
 
@@ -170,7 +165,6 @@ const App: React.FC = () => {
       updated[existingIndex] = {
         ...existing,
         location: shouldUpgradeLocation ? info.location : existing.location,
-        courier: shouldUpgradeCourier ? info.courier : existing.courier,
         address: shouldUpgradeAddress ? info.address : existing.address,
         originalText: shouldUpgradeOriginalText ? originalText : existing.originalText,
       };
@@ -251,7 +245,6 @@ const App: React.FC = () => {
           pickupCode: nativePkg.pickupCode,
           location: nativePkg.location || '未知',
           address: nativePkg.address,
-          courier: nativePkg.courier || '未知',
           timestamp: nativePkg.timestamp,
         },
         nativePkg.originalText || '',

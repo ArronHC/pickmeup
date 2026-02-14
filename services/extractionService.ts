@@ -24,7 +24,6 @@ export const extractInfoFromText = async (text: string): Promise<ExtractedInfo> 
     return {
       pickupCode: templateResult.pickupCode,
       location: templateResult.location || "未知",
-      courier: templateResult.courier || "未知",
       ...(templateResult.address ? { address: templateResult.address } : {}),
     };
   }
@@ -62,7 +61,6 @@ export const extractInfosFromImage = async (base64Image: string): Promise<Extrac
     return [{
       pickupCode: templateResult.pickupCode,
       location: templateResult.location || "未知",
-      courier: templateResult.courier || "未知",
       ...(templateResult.address ? { address: templateResult.address } : {}),
     }];
   }

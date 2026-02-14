@@ -111,25 +111,6 @@ export const extractPickupCode = (text: string): string | null => {
   return null;
 };
 
-// 从文本中提取快递公司名称
-export const extractCourierFromText = (text: string): string | undefined => {
-  const source = text.toLowerCase();
-  if (source.includes("顺丰")) return "顺丰";
-  if (source.includes("中通")) return "中通";
-  if (source.includes("圆通")) return "圆通";
-  if (source.includes("韵达")) return "韵达";
-  if (source.includes("申通")) return "申通";
-  if (source.includes("极兔")) return "极兔";
-  if (source.includes("京东")) return "京东";
-  if (source.includes("邮政") || source.includes("ems")) return "邮政";
-  if (source.includes("丰巢")) return "丰巢";
-  if (source.includes("菜鸟")) return "菜鸟";
-  if (source.includes("百世")) return "百世";
-  if (source.includes("德邦")) return "德邦";
-  if (source.includes("天天")) return "天天";
-  return undefined;
-};
-
 // 从文本中提取取件地点
 export const extractLocationFromText = (text: string): string | undefined => {
   // 优先匹配"已存入""已放入""已投入"等前缀模式
@@ -219,7 +200,7 @@ export const extractPickupCodesFromAnyText = (text: string): string[] => {
   }
 
   return dedupeInfos(
-    codes.map((code) => ({ pickupCode: code, location: "未知", courier: "未知" }))
+    codes.map((code) => ({ pickupCode: code, location: "未知" }))
   ).map((info) => info.pickupCode);
 };
 
@@ -258,13 +239,11 @@ export const extractInfosHeuristically = (
   }
 
   const location = extractLocationFromText(text) || extractLocationFromText(sourceText) || "未知";
-  const courier = extractCourierFromText(text) || extractCourierFromText(sourceText) || "未知";
   const address = extractAddressFromText(text) || extractAddressFromText(sourceText);
 
   return uniqueCodes.map((pickupCode) => ({
     pickupCode,
     location,
-    courier,
     ...(address ? { address } : {}),
   }));
 };
