@@ -1,0 +1,7 @@
+{
+  "name": "取件助手 (PickMeUp)",
+  "description": "智能取件码管理器，自动识别短信和截图中的取件信息。",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ios-bg-light: #F2F2F7;
+    --ios-bg-dark: #000000;
+  }
+  
+  body {
+    @apply antialiased text-gray-900 bg-[#F2F2F7] dark:bg-[#000000];
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-white/20 dark:border-white/5;
+  }
+  
+  .glass-card {
+    @apply bg-white/80 dark:bg-slate-800/60 backdrop-blur-lg;
+  }
+  
+  .active-scale {
+    @apply transition-transform active:scale-95 duration-200;
+  }
+}
+
+/* Custom Scrollbar Hide */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
