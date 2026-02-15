@@ -46,10 +46,12 @@ const PICKUP_HINT_PATTERN =
   /(取件码|取货码|提货码|凭[：:\s]*[A-Za-z0-9-\s]{4,16}(?:[：:\s]*(?:取件|取货|提货|到))?)/i;
 
 const PICKUP_CODE_PATTERNS: RegExp[] = [
-  /(?:取件码|取货码|提货码)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,12})/i,
-  /凭[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,12})(?:[：:\s]*(?:取件|取货|提货|到))?/i,
-  /(?:取件|取货|提货)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,12})/i,
+  /(?:取件码|取货码|提货码)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,16})/i,
+  /凭[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,16})(?:[：:\s]*(?:取件|取货|提货|到))?/i,
+  /(?:取件|取货|提货)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,16})/i,
   /(\d{1,2}\s*-\s*\d{1,2}\s*-\s*\d{3,4})/,
+  /码[：:\s]*([A-Za-z0-9]{4,16})/i,
+  /(?:取|凭|拿)[：:\s]*(\d{4,8})/i,
 ];
 
 const normalizeText = (text: string): string =>
@@ -64,7 +66,7 @@ export const normalizePickupCode = (code: string): string =>
 
 export const isValidPickupCode = (code: string): boolean => {
   const normalized = normalizePickupCode(code);
-  if (!/^[A-Z0-9-]{4,12}$/.test(normalized)) {
+  if (!/^[A-Z0-9-]{4,16}$/.test(normalized)) {
     return false;
   }
 
@@ -180,9 +182,11 @@ export const extractPickupCodesFromAnyText = (text: string): string[] => {
   }
 
   const patterns = [
-    /(?:取件码|取货码|提货码|取件|取货|提货|凭)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,12})/gi,
+    /(?:取件码|取货码|提货码|取件|取货|提货|凭)[：:\s]*([A-Za-z0-9]{1,4}(?:[-\s][A-Za-z0-9]{1,4}){1,3}|[A-Za-z0-9-]{4,16})/gi,
     /(\d{1,2}\s*[-－]\s*\d{1,2}\s*[-－]\s*\d{3,4})/g,
-    /(?:凭)[：:\s]*([A-Za-z0-9-]{4,12})/gi,
+    /(?:凭)[：:\s]*([A-Za-z0-9-]{4,16})/gi,
+    /码[：:\s]*([A-Za-z0-9]{4,16})/gi,
+    /(?:取|凭|拿)[：:\s]*(\d{4,8})/gi,
   ];
 
   for (const pattern of patterns) {

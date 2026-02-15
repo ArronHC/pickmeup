@@ -93,8 +93,14 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
                 setError("已存在相同取件码，未导入。");
             }
         } catch (err) {
-            const message = err instanceof Error ? err.message : '解析短信内容失败，请重试';
-            setError(message);
+            const errMsg = err instanceof Error ? err.message : '';
+            if (errMsg.includes('未提取到取件码')) {
+                setError(`无法从该短信中提取取件码，可能格式不在支持范围内。来源：${message.address}`);
+            } else if (errMsg.includes('不是快递')) {
+                setError('该短信不是快递取件通知。');
+            } else {
+                setError(errMsg || '解析短信内容失败，请重试');
+            }
         } finally {
             setProcessing(null);
         }
@@ -143,6 +149,7 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
         let failedCount = 0;
         let duplicateCount = 0;
         let successCount = 0;
+        const failedSources: string[] = [];
 
         for (let index = 0; index < selectedMessages.length; index += 1) {
             const message = selectedMessages[index];
@@ -156,6 +163,7 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
                 }
             } catch (err) {
                 failedCount += 1;
+                failedSources.push(message.address);
             } finally {
                 setBatchProgress(index + 1);
             }
@@ -164,14 +172,20 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
         setBatchProcessing(false);
         setSelectedIds(new Set());
 
+        const errorParts: string[] = [];
         if (failedCount > 0) {
-            setError(`有 ${failedCount} 条短信解析失败，请重试`);
+            const sourcesPreview = failedSources.slice(0, 3).join('、');
+            const extra = failedSources.length > 3 ? `等 ${failedSources.length} 条` : '';
+            errorParts.push(`${failedCount} 条无法提取取件码（${sourcesPreview}${extra}）`);
+        }
+        if (duplicateCount > 0) {
+            errorParts.push(`${duplicateCount} 条已存在相同取件码`);
+        }
+        if (errorParts.length > 0) {
+            setError(errorParts.join('；'));
         }
         if (successCount > 0) {
             setSuccessMessage(`成功导入 ${successCount} 条短信`);
-        }
-        if (duplicateCount > 0) {
-            setError(`有 ${duplicateCount} 条短信已存在相同取件码，已跳过`);
         }
         if (failedCount === 0 && duplicateCount === 0) {
             onClose();

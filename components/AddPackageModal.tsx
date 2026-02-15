@@ -164,10 +164,11 @@ const AddPackageModal: React.FC<AddPackageModalProps> = ({ isOpen, onClose, onAd
               )}
 
               {activeTab === ImportMethod.TEXT ? (
-                <motion.div 
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
                   className="space-y-4"
                 >
                   <div className="bg-white/50 dark:bg-black/20 rounded-xl p-2 border border-white/20 dark:border-white/5 shadow-inner">
@@ -191,10 +192,11 @@ const AddPackageModal: React.FC<AddPackageModalProps> = ({ isOpen, onClose, onAd
                   </motion.button>
                 </motion.div>
               ) : (
-                <motion.div 
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
                   className="space-y-4"
                 >
                    <motion.div 

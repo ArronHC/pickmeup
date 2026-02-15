@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PackageData, ExtractedInfo } from './types';
 import { loadPackages, savePackages } from './services/storageService';
 import { SmsReader, isNativePlatform } from './services/smsService';
@@ -7,6 +7,7 @@ import { normalizePickupCode } from './services/pickupTextRules';
 import PackageCard from './components/PackageCard';
 import AddPackageModal from './components/AddPackageModal';
 import SmsImportModal from './components/SmsImportModal';
+import ConfirmDialog from './components/ConfirmDialog';
 import Onboarding from './components/Onboarding';
 import PickupHeatmap from './components/PickupHeatmap';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -47,6 +48,7 @@ const App: React.FC = () => {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [isAutoImporting, setIsAutoImporting] = useState(false);
   const [autoImportNotice, setAutoImportNotice] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const packagesRef = useRef<PackageData[]>([]);
   const autoImportLockRef = useRef(false);
   const autoImportNoticeTimerRef = useRef<number | null>(null);
@@ -203,10 +205,15 @@ const App: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm("确定要删除这条取件信息吗？")) {
-      const next = packagesRef.current.filter(p => p.id !== id);
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirmId) {
+      const next = packagesRef.current.filter(p => p.id !== deleteConfirmId);
       packagesRef.current = next;
       setPackages(next);
+      setDeleteConfirmId(null);
     }
   };
 
@@ -360,13 +367,13 @@ const App: React.FC = () => {
   }, [isNative, runAutoSmsImport]);
 
   const now = Date.now();
-  const filteredPackages = packages.filter(p => {
+  const filteredPackages = useMemo(() => packages.filter(p => {
     if (isExpiredPickedPackage(p, now)) {
       return false;
     }
     return filter === 'active' ? !p.isPickedUp : p.isPickedUp;
-  });
-  const sortedPackages = [...filteredPackages].sort((a, b) => {
+  }), [packages, filter, now]);
+  const sortedPackages = useMemo(() => [...filteredPackages].sort((a, b) => {
     if (sortBy === 'time') {
       const aTime = new Date(a.timestamp).getTime();
       const bTime = new Date(b.timestamp).getTime();
@@ -376,7 +383,7 @@ const App: React.FC = () => {
     const bLoc = (b.location || '').toLowerCase();
     const comparison = aLoc.localeCompare(bLoc, 'zh-Hans-CN');
     return sortDirection === 'asc' ? comparison : -comparison;
-  });
+  }), [filteredPackages, sortBy, sortDirection]);
 
   if (showOnboarding) {
     return <Onboarding onComplete={handleCompleteOnboarding} isDarkMode={isDarkMode} />;
@@ -521,7 +528,7 @@ const App: React.FC = () => {
         {/* Main List */}
         <main className="px-4 pt-4 pb-32 flex-1 overflow-x-hidden">
           {filter === 'active' && <PickupHeatmap packages={packages} />}
-          <AnimatePresence mode='popLayout'>
+          <AnimatePresence mode='wait'>
           {filteredPackages.length === 0 ? (
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
@@ -566,6 +573,17 @@ const App: React.FC = () => {
           isOpen={isSmsModalOpen}
           onClose={() => setIsSmsModalOpen(false)}
           onImport={handleAddPackage}
+        />
+
+        <ConfirmDialog
+          isOpen={deleteConfirmId !== null}
+          title="删除取件信息"
+          message="确定要删除这条取件信息吗？删除后无法恢复。"
+          confirmLabel="删除"
+          cancelLabel="取消"
+          confirmVariant="danger"
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirmId(null)}
         />
       </div>
     </div>

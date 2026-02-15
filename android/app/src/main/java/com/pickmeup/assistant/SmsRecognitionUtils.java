@@ -18,13 +18,16 @@ public final class SmsRecognitionUtils {
     };
 
     private static final Pattern PICKUP_HINT_PATTERN = Pattern.compile(
-        "取件码|取货码|提货码|凭[：:\\s]*[A-Za-z0-9\\-]{4,12}[：:\\s]*(?:取件|取货|提货)"
+        "取件码|取货码|提货码|凭[：:\\s]*[A-Za-z0-9\\-]{4,16}[：:\\s]*(?:取件|取货|提货|到)?"
     );
 
     private static final Pattern[] PICKUP_CODE_PATTERNS = {
-        Pattern.compile("(?:取件码|取货码|提货码)[：:\\s]*([A-Za-z0-9\\-]{4,12})", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("凭[：:\\s]*([A-Za-z0-9\\-]{4,12})[：:\\s]*(?:取件|取货|提货)", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("(?:取件|取货|提货)[：:\\s]*([A-Za-z0-9\\-]{4,12})", Pattern.CASE_INSENSITIVE)
+        Pattern.compile("(?:取件码|取货码|提货码)[：:\\s]*([A-Za-z0-9\\-]{4,16})", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("凭[：:\\s]*([A-Za-z0-9\\-]{4,16})[：:\\s]*(?:取件|取货|提货|到)?", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:取件|取货|提货)[：:\\s]*([A-Za-z0-9\\-]{4,16})", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(\\d{1,2}\\s*-\\s*\\d{1,2}\\s*-\\s*\\d{3,4})"),
+        Pattern.compile("码[：:\\s]*([A-Za-z0-9]{4,16})", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:取|凭|拿)[：:\\s]*(\\d{4,8})", Pattern.CASE_INSENSITIVE)
     };
 
     private SmsRecognitionUtils() {
@@ -88,7 +91,7 @@ public final class SmsRecognitionUtils {
     }
 
     private static boolean isValidPickupCode(String code) {
-        if (code.isEmpty() || !code.matches("[A-Z0-9\\-]{4,12}")) {
+        if (code.isEmpty() || !code.matches("[A-Z0-9\\-]{4,16}")) {
             return false;
         }
 

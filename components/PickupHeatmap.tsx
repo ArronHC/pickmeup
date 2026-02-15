@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { PackageData } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -46,12 +46,40 @@ const PickupHeatmap: React.FC<PickupHeatmapProps> = ({ packages }) => {
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(HEATMAP_COLLAPSED_KEY) === 'true';
   });
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const toggleCollapsed = () => {
     const next = !collapsed;
     setCollapsed(next);
     localStorage.setItem(HEATMAP_COLLAPSED_KEY, String(next));
   };
+
+  // 点击外部关闭气泡
+  useEffect(() => {
+    if (!selectedDate) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setSelectedDate(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedDate]);
+
+  // 按日期索引包裹
+  const packagesMap = useMemo(() => {
+    const map = new Map<string, PackageData[]>();
+    for (const pkg of packages) {
+      const ts = pkg.createdAt ?? new Date(pkg.timestamp).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const key = formatDateKey(new Date(ts));
+      const list = map.get(key) || [];
+      list.push(pkg);
+      map.set(key, list);
+    }
+    return map;
+  }, [packages]);
 
   const { grid, monthLabels, totalCount } = useMemo(() => {
     // 按天聚合包裹数量
@@ -117,10 +145,17 @@ const PickupHeatmap: React.FC<PickupHeatmapProps> = ({ packages }) => {
     };
   }, [packages]);
 
+  const selectedPackages = selectedDate ? (packagesMap.get(selectedDate) || []) : [];
+  const selectedDateDisplay = selectedDate
+    ? (() => {
+        const d = new Date(selectedDate);
+        return `${d.getMonth() + 1}月${d.getDate()}日`;
+      })()
+    : '';
+
   return (
     <div className="mb-4">
-      <motion.div
-        layout
+      <div
         className="glass-card rounded-[20px] border border-white/60 dark:border-white/10 bg-white dark:bg-slate-800 shadow-sm overflow-hidden"
       >
         {/* 标题栏 */}
@@ -220,16 +255,15 @@ const PickupHeatmap: React.FC<PickupHeatmapProps> = ({ packages }) => {
                           }
 
                           const level = getLevel(cell.count);
-                          const dateStr = `${cell.date.getMonth() + 1}月${cell.date.getDate()}日`;
-                          const title = cell.count > 0
-                            ? `${dateStr}：${cell.count} 个包裹`
-                            : `${dateStr}：无包裹`;
+                          const dateKey = formatDateKey(cell.date);
+                          const isSelected = selectedDate === dateKey;
+                          const hasPackages = cell.count > 0;
 
                           return (
                             <div
                               key={rowIdx}
-                              title={title}
-                              className={`rounded-[2px] ${LEVEL_COLORS_LIGHT[level]} ${LEVEL_COLORS_DARK[level]}`}
+                              onClick={hasPackages ? () => setSelectedDate(isSelected ? null : dateKey) : undefined}
+                              className={`rounded-[2px] ${LEVEL_COLORS_LIGHT[level]} ${LEVEL_COLORS_DARK[level]} ${hasPackages ? 'cursor-pointer' : ''} ${isSelected ? 'ring-1 ring-gray-900 dark:ring-white ring-offset-1' : ''}`}
                               style={{ width: '10px', height: '10px' }}
                             />
                           );
@@ -251,11 +285,56 @@ const PickupHeatmap: React.FC<PickupHeatmapProps> = ({ packages }) => {
                   ))}
                   <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">多</span>
                 </div>
+
+                {/* 点击气泡：显示该日包裹列表 */}
+                <AnimatePresence>
+                  {selectedDate && selectedPackages.length > 0 && (
+                    <motion.div
+                      ref={popoverRef}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.15 }}
+                      className="mt-3 p-3 rounded-xl bg-gray-50 dark:bg-slate-700/60 border border-gray-200/50 dark:border-white/10"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                          {selectedDateDisplay} · {selectedPackages.length} 个包裹
+                        </span>
+                        <button
+                          onClick={() => setSelectedDate(null)}
+                          className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-32 overflow-y-auto no-scrollbar">
+                        {selectedPackages.map(pkg => (
+                          <div key={pkg.id} className="flex items-center gap-2 text-xs">
+                            <span className="font-mono font-semibold text-gray-900 dark:text-white">
+                              {pkg.pickupCode}
+                            </span>
+                            <span className="text-gray-500 dark:text-gray-400 truncate">
+                              {pkg.location}
+                            </span>
+                            {pkg.isPickedUp && (
+                              <span className="flex-shrink-0 text-[10px] text-green-600 dark:text-green-400 font-medium">
+                                已取
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.div>
+      </div>
     </div>
   );
 };
