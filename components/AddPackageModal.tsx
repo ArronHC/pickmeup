@@ -55,8 +55,7 @@ const AddPackageModal: React.FC<AddPackageModalProps> = ({ isOpen, onClose, onAd
     setIsLoading(true);
     setError(null);
     try {
-        const base64Data = imagePreview.split(',')[1];
-        const infos = await extractInfosFromImage(base64Data);
+        const infos = await extractInfosFromImage(imagePreview);
         let addedCount = 0;
         for (const info of infos) {
           const added = onAdd(info, "图片识别导入");
