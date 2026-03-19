@@ -1,97 +1,115 @@
 # 取件助手 (PickMeUp)
 
-智能快递取件码管理应用，自动识别短信和截图中的取件信息，帮助用户集中管理快递包裹。
+一个面向中文快递场景的取件码管理应用，支持从短信文本和截图中提取取件信息，并在本地集中管理待取件包裹。
 
-## 功能特性
+## 项目定位
 
-- **AI 智能提取** — 粘贴短信文本或拍照截图，自动识别取件码、快递公司、取件地点等信息
-- **短信批量导入** — Android 原生环境下自动读取最近 7 天的快递短信并批量导入
-- **取件状态管理** — 一键标记已取件，已取件包裹 3 天后自动清理
-- **智能去重** — 相同取件码自动合并，仅补全缺失字段
-- **排序与筛选** — 按时间或地点排序，区分待取件与历史记录
-- **暗色模式** — 支持亮色/暗色主题切换
-- **离线可用** — 数据存储在本地 localStorage，无需网络即可查看
+- 完全本地识别：当前版本不依赖 OpenAI、GitHub Models 或其他云端 AI 服务
+- Android 优先：短信读取、短信自动导入等能力依赖 Capacitor 原生插件
+- 隐私优先：包裹数据保存在本地存储，不上传到服务端
+
+## 核心功能
+
+- 文本导入：粘贴短信内容，自动提取取件码、地点和地址
+- 图片识别：通过 Tesseract.js 做本地 OCR，支持从截图中识别一条或多条取件信息
+- 模板加规则双通路：优先匹配快递短信模板，失败时回退到通用规则提取
+- Android 短信导入：批量读取最近短信，并支持原生侧自动导入
+- 去重合并：同一取件码自动合并，尽量补全地点、地址和原始文本
+- 状态管理：支持标记已取件，历史包裹会在过期后自动清理
+- 视图辅助：支持待取件/历史切换、排序，以及取件频次热力图
 
 ## 技术栈
 
 | 类别 | 技术 |
 |------|------|
-| 前端框架 | React 19 + TypeScript |
-| 构建工具 | Vite 6 |
-| 样式方案 | Tailwind CSS (CDN) |
+| 前端 | React 19 + TypeScript |
+| 构建 | Vite 6 |
+| 原生容器 | Capacitor 8 |
+| OCR | Tesseract.js |
 | 动画 | Framer Motion |
-| 原生桥接 | Capacitor 8 (Android) |
-| AI 推理 | GitHub Models API (GPT-4o) |
+| 数据存储 | localStorage |
 
-## 快速开始
+## 支持的识别方式
 
-### 前置要求
+- 快递短信模板匹配：覆盖丰巢、菜鸟、顺丰、中通、圆通、韵达、申通、极兔、京东、邮政/EMS 等常见场景
+- 通用规则提取：针对未命中模板的短信和 OCR 文本进行兜底识别
+- 图片预处理：在 OCR 前做灰度化和对比度增强，提升截图识别成功率
 
-- Node.js >= 18
-- npm >= 9
+## 本地开发
 
-### 安装与运行
+### 环境要求
+
+- Node.js 18+
+- npm 9+
+
+### 启动项目
 
 ```bash
-# 克隆项目
 git clone https://github.com/ArronHC/pickmeup.git
 cd pickmeup
-
-# 安装依赖
 npm install
-
-# 配置环境变量（填入 API Key）
-cp .env.local.example .env.local
-
-# 启动开发服务器
 npm run dev
 ```
 
-### 环境变量
-
-在 `.env.local` 中配置（三选一）：
-
-```
-VITE_GH_AI_KEY=你的_GitHub_Models_API_Key
-VITE_API_KEY=备用_API_Key
-VITE_OPENAI_API_KEY=备用_OpenAI_API_Key
-```
-
-### 构建
+### 构建 Web 版本
 
 ```bash
-npm run build    # 生产构建，输出到 dist/
-npm run preview  # 预览生产构建
+npm run build
+npm run preview
+```
+
+## Android 开发
+
+```bash
+npx cap sync android
+npx cap open android
+```
+
+说明：
+
+- 短信读取和自动导入仅在 Android 原生环境可用
+- `local.properties` 和 `keystore.properties` 属于本地机器配置，不应提交到仓库
+- Android Studio 通常会自动生成 `local.properties`
+
+### Release 签名配置
+
+仓库不会保存签名文件和密码。若需要本地打包 release，请在仓库根目录创建 `keystore.properties`：
+
+```properties
+storeFile=/absolute/path/to/your-release.keystore
+storePassword=your-store-password
+keyAlias=your-key-alias
+keyPassword=your-key-password
+```
+
+也可以改用环境变量：
+
+```bash
+export PICKMEUP_RELEASE_STORE_FILE=/absolute/path/to/your-release.keystore
+export PICKMEUP_RELEASE_STORE_PASSWORD=your-store-password
+export PICKMEUP_RELEASE_KEY_ALIAS=your-key-alias
+export PICKMEUP_RELEASE_KEY_PASSWORD=your-key-password
 ```
 
 ## 项目结构
 
-```
+```text
 pickmeup/
-├── components/             # React 组件
-│   ├── AddPackageModal.tsx  # 新增取件弹窗（文本/图片导入）
-│   ├── Onboarding.tsx      # 首次使用引导页
-│   ├── PackageCard.tsx     # 包裹卡片组件
-│   └── SmsImportModal.tsx  # 短信批量导入弹窗
-├── services/               # 服务层
-│   ├── geminiService.ts    # AI 信息提取服务
-│   ├── pickupTextRules.ts  # 取件码正则匹配规则
-│   ├── smsService.ts       # 短信读取服务
-│   └── storageService.ts   # 本地存储服务
-├── android/                # Capacitor Android 原生项目
-├── App.tsx                 # 主应用组件
-├── types.ts                # TypeScript 类型定义
-├── index.html              # HTML 入口
-└── index.css               # 全局样式
+├── components/          # UI 组件与弹窗
+├── services/            # OCR、模板匹配、规则提取、短信与存储服务
+├── android/             # Capacitor Android 工程
+├── docs/                # 设计文档与发布说明
+├── App.tsx              # 主应用入口
+├── types.ts             # 类型定义
+├── index.html           # HTML 入口
+└── index.css            # 全局样式
 ```
 
-## 信息提取策略
+## 发布版本
 
-采用双重保障机制：
-
-1. **AI 提取（主路径）** — 调用 GitHub Models API，通过提示词工程提取结构化取件信息
-2. **规则提取（后备路径）** — 使用正则表达式进行本地匹配，在 AI 不可用时保证基本功能
+- 当前版本：`1.3.0`
+- 最新 release notes：[`docs/releases/v1.3.0.md`](docs/releases/v1.3.0.md)
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
