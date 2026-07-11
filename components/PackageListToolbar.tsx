@@ -1,5 +1,4 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { memo } from 'react';
 
 interface PackageListToolbarProps {
   searchQuery: string;
@@ -66,11 +65,10 @@ const PackageListToolbar: React.FC<PackageListToolbarProps> = ({
             </option>
           ))}
         </select>
-        <motion.button
-          whileTap={{ scale: 0.95 }}
+        <button
           type="button"
           onClick={onToggleSelectionMode}
-          className={`px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors
+          className={`px-3 py-2 rounded-xl text-[12px] font-semibold transition-colors active-scale
             ${
               selectionMode
                 ? 'bg-blue-600 text-white'
@@ -78,7 +76,7 @@ const PackageListToolbar: React.FC<PackageListToolbarProps> = ({
             }`}
         >
           {selectionMode ? '完成' : '多选'}
-        </motion.button>
+        </button>
       </div>
 
       {selectionMode && (
@@ -103,24 +101,22 @@ const PackageListToolbar: React.FC<PackageListToolbarProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               type="button"
               disabled={selectedCount === 0}
               onClick={onBatchPickUp}
-              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-green-500/90 text-white disabled:opacity-40"
+              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-green-500/90 text-white disabled:opacity-40 active-scale"
             >
               批量已取
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            </button>
+            <button
               type="button"
               disabled={selectedCount === 0}
               onClick={onBatchDelete}
-              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-red-500/90 text-white disabled:opacity-40"
+              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-red-500/90 text-white disabled:opacity-40 active-scale"
             >
               批量删除
-            </motion.button>
+            </button>
           </div>
         </div>
       )}
@@ -128,4 +124,4 @@ const PackageListToolbar: React.FC<PackageListToolbarProps> = ({
   );
 };
 
-export default PackageListToolbar;
+export default memo(PackageListToolbar);

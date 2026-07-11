@@ -32,7 +32,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm pointer-events-auto"
+            className="absolute inset-0 bg-black/40 dark:bg-black/60 pointer-events-auto"
             onClick={onCancel}
           />
 
@@ -42,7 +42,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.85 }}
             transition={{ type: 'spring', damping: 25, stiffness: 400 }}
-            className="relative w-[270px] bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl rounded-[14px] overflow-hidden shadow-2xl pointer-events-auto"
+            className="relative w-[270px] bg-white dark:bg-slate-800 rounded-[14px] overflow-hidden shadow-2xl pointer-events-auto"
           >
             {/* 内容区 */}
             <div className="px-4 pt-5 pb-4 text-center">

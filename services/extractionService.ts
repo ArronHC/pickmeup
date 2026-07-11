@@ -10,9 +10,9 @@ import {
 } from './pickupTextRules';
 import { detectCourierName } from './courierIcons';
 
-// 从文本提取取件信息
+// 从文本提取取件信息（同步，便于批量导入时避免无意义的 microtask 切换）
 // 流程：快递短信判定 → 模板匹配 → 规则兜底
-export const extractInfoFromText = async (text: string): Promise<ExtractedInfo> => {
+export const extractInfoFromTextSync = (text: string): ExtractedInfo => {
   if (!isLikelyPickupMessage(text)) {
     throw new Error('该短信不是快递取件通知');
   }
@@ -43,3 +43,6 @@ export const extractInfoFromText = async (text: string): Promise<ExtractedInfo> 
     courier: detectCourierName(text, first.courier),
   };
 };
+
+export const extractInfoFromText = async (text: string): Promise<ExtractedInfo> =>
+  extractInfoFromTextSync(text);

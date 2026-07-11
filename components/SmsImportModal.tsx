@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { SmsReader, SmsMessage, isNativePlatform, formatSmsDate, extractPickupCodePreview } from '../services/smsService';
-import { extractInfoFromText } from '../services/extractionService';
+import { extractInfoFromTextSync } from '../services/extractionService';
 import { ExtractedInfo } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const BATCH_YIELD_EVERY = 8;
+
+const yieldToMainThread = (): Promise<void> =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
 
 interface SmsImportModalProps {
     isOpen: boolean;
@@ -85,7 +92,7 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
     const handleSelectMessage = async (message: SmsMessage) => {
         try {
             setProcessing(message.id);
-            const info = await extractInfoFromText(message.body);
+            const info = extractInfoFromTextSync(message.body);
             const added = onImport(info, message.body, { sourceTimestamp: message.date, preferSourceTimestamp: true });
             if (added) {
                 onClose();
@@ -154,7 +161,7 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
         for (let index = 0; index < selectedMessages.length; index += 1) {
             const message = selectedMessages[index];
             try {
-                const info = await extractInfoFromText(message.body);
+                const info = extractInfoFromTextSync(message.body);
                 const added = onImport(info, message.body, { sourceTimestamp: message.date, preferSourceTimestamp: true });
                 if (!added) {
                     duplicateCount += 1;
@@ -166,6 +173,9 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
                 failedSources.push(message.address);
             } finally {
                 setBatchProgress(index + 1);
+            }
+            if ((index + 1) % BATCH_YIELD_EVERY === 0) {
+                await yieldToMainThread();
             }
         }
 
@@ -213,7 +223,7 @@ const SmsImportModal: React.FC<SmsImportModalProps> = ({ isOpen, onClose, onImpo
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-[2px] pointer-events-auto"
+                        className="absolute inset-0 bg-black/40 dark:bg-black/60 pointer-events-auto"
                         onClick={onClose}
                     />
 

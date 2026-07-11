@@ -24,18 +24,14 @@
       }
     </script>
     <style>
-      /* Simulate iOS System Fonts */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-        /* Dynamic Background controlled by React classes usually, but setting a default here */
         background-color: #F2F2F7;
         color: #000000;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        transition: background-color 0.3s ease;
       }
-      
-      /* Hide scrollbar */
+
       .no-scrollbar::-webkit-scrollbar {
           display: none;
       }
@@ -44,19 +40,13 @@
           scrollbar-width: none;
       }
 
-      /* iOS Button Touch Feedback */
       .active-scale:active {
         transform: scale(0.96);
         opacity: 0.8;
       }
 
-      /* Glassmorphism Utilities */
+      /* sticky 顶栏保留轻量毛玻璃；卡片不再逐张 blur，减少 Android WebView 合成压力 */
       .glass-panel {
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-      }
-      
-      .glass-card {
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
       }

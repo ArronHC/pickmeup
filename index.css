@@ -7,7 +7,7 @@
     --ios-bg-light: #F2F2F7;
     --ios-bg-dark: #000000;
   }
-  
+
   body {
     @apply antialiased text-gray-900 bg-[#F2F2F7] dark:bg-[#000000];
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -16,20 +16,28 @@
 }
 
 @layer components {
+  /* 仅 sticky header 使用 blur；列表卡片用半透明即可，避免大量 backdrop-filter 掉帧 */
   .glass-panel {
-    @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-white/20 dark:border-white/5;
+    @apply bg-white/85 dark:bg-slate-900/85 border-b border-white/20 dark:border-white/5;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
-  
+
   .glass-card {
-    @apply bg-white/80 dark:bg-slate-800/60 backdrop-blur-lg;
+    @apply bg-white/95 dark:bg-slate-800/90;
   }
-  
+
+  .package-card {
+    contain: layout paint style;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 180px;
+  }
+
   .active-scale {
-    @apply transition-transform active:scale-95 duration-200;
+    @apply transition-transform active:scale-95 duration-150;
   }
 }
 
-/* Custom Scrollbar Hide */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

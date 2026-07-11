@@ -1,8 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useTransition } from 'react';
 import { PackageData, ExtractedInfo } from './types';
-import { loadPackages, savePackages } from './services/storageService';
+import {
+  loadPackages,
+  savePackagesDebounced,
+  flushPendingPackageSave,
+} from './services/storageService';
 import { SmsReader, isNativePlatform } from './services/smsService';
-import { extractInfoFromText } from './services/extractionService';
+import { extractInfoFromTextSync } from './services/extractionService';
 import { normalizePickupCode } from './services/pickupTextRules';
 import { detectCourierName } from './services/courierIcons';
 import {
@@ -23,6 +27,14 @@ import PackageListToolbar from './components/PackageListToolbar';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const SMS_AUTO_IMPORT_LAST_SYNC_KEY = 'pickmeup_sms_last_sync_ts';
+const SEARCH_DEBOUNCE_MS = 180;
+/** 批量/自动导入时每处理若干条让出主线程，避免 UI 卡死 */
+const IMPORT_YIELD_EVERY = 8;
+
+const yieldToMainThread = (): Promise<void> =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
 
 const App: React.FC = () => {
   const [packages, setPackages] = useState<PackageData[]>([]);
@@ -38,13 +50,17 @@ const App: React.FC = () => {
   const [autoImportNotice, setAutoImportNotice] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [courierFilter, setCourierFilter] = useState('all');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [, startTransition] = useTransition();
   const packagesRef = useRef<PackageData[]>([]);
   const autoImportLockRef = useRef(false);
   const autoImportNoticeTimerRef = useRef<number | null>(null);
+  const searchDebounceTimerRef = useRef<number | null>(null);
+  const hasHydratedPackagesRef = useRef(false);
 
   const commitPackages = useCallback((next: PackageData[]) => {
     const purged = purgeExpiredPackages(next);
@@ -70,6 +86,7 @@ const App: React.FC = () => {
     data.sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
     packagesRef.current = data;
     setPackages(data);
+    hasHydratedPackagesRef.current = true;
 
     const hasSeenOnboarding = localStorage.getItem('has_seen_onboarding');
     if (!hasSeenOnboarding) {
@@ -88,32 +105,70 @@ const App: React.FC = () => {
     setIsNative(isNativePlatform());
   }, []);
 
-  const toggleTheme = () => {
-    const newMode = !isDarkMode;
-    setIsDarkMode(newMode);
-    if (newMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  };
+  const toggleTheme = useCallback(() => {
+    setIsDarkMode((previousMode) => {
+      const nextMode = !previousMode;
+      if (nextMode) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+      }
+      return nextMode;
+    });
+  }, []);
 
   useEffect(() => {
-    savePackages(packages);
+    if (!hasHydratedPackagesRef.current) {
+      return;
+    }
     packagesRef.current = packages;
+    savePackagesDebounced(packages);
   }, [packages]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingPackageSave();
+      }
+    };
+    const handlePageHide = () => {
+      flushPendingPackageSave();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      flushPendingPackageSave();
+      if (searchDebounceTimerRef.current) {
+        window.clearTimeout(searchDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('packages_sort_by', sortBy);
     localStorage.setItem('packages_sort_direction', sortDirection);
   }, [sortBy, sortDirection]);
 
-  const handleCompleteOnboarding = () => {
+  const handleSearchQueryChange = useCallback((value: string) => {
+    setSearchInput(value);
+    if (searchDebounceTimerRef.current) {
+      window.clearTimeout(searchDebounceTimerRef.current);
+    }
+    searchDebounceTimerRef.current = window.setTimeout(() => {
+      startTransition(() => {
+        setSearchQuery(value);
+      });
+    }, SEARCH_DEBOUNCE_MS);
+  }, [startTransition]);
+
+  const handleCompleteOnboarding = useCallback(() => {
     localStorage.setItem('has_seen_onboarding', 'true');
     setShowOnboarding(false);
-  };
+  }, []);
 
   const handleAddPackage = useCallback(
     (
@@ -151,7 +206,7 @@ const App: React.FC = () => {
         createdAt: Date.now(),
       };
 
-      const current = purgeExpiredPackages(packagesRef.current);
+      const current = packagesRef.current;
       const existingIndex = current.findIndex(
         (pkg) => normalizePickupCode(pkg.pickupCode) === incomingCode
       );
@@ -161,8 +216,6 @@ const App: React.FC = () => {
 
         // 已删除墓碑：3 天内不复活、不升级
         if (existing.status === 'deleted') {
-          packagesRef.current = current;
-          setPackages(current);
           return false;
         }
 
@@ -188,8 +241,6 @@ const App: React.FC = () => {
             shouldUpgradeCourier
           )
         ) {
-          packagesRef.current = current;
-          setPackages(current);
           return false;
         }
 
@@ -211,23 +262,26 @@ const App: React.FC = () => {
     [commitPackages]
   );
 
-  const handleToggleStatus = (id: string) => {
-    const now = Date.now();
-    const next = packagesRef.current.map((pkg) => {
-      if (pkg.id !== id) return pkg;
-      if (pkg.status === 'picked' || pkg.isPickedUp) {
-        return markPackageActive(pkg);
-      }
-      return markPackagePicked(pkg, now);
-    });
-    commitPackages(next);
-  };
+  const handleToggleStatus = useCallback(
+    (id: string) => {
+      const now = Date.now();
+      const next = packagesRef.current.map((pkg) => {
+        if (pkg.id !== id) return pkg;
+        if (pkg.status === 'picked' || pkg.isPickedUp) {
+          return markPackageActive(pkg);
+        }
+        return markPackagePicked(pkg, now);
+      });
+      commitPackages(next);
+    },
+    [commitPackages]
+  );
 
-  const handleDelete = (id: string) => {
+  const handleDelete = useCallback((id: string) => {
     setDeleteConfirmId(id);
-  };
+  }, []);
 
-  const confirmDelete = () => {
+  const confirmDelete = useCallback(() => {
     if (!deleteConfirmId) return;
     const now = Date.now();
     const next = packagesRef.current.map((pkg) =>
@@ -240,9 +294,9 @@ const App: React.FC = () => {
       updated.delete(deleteConfirmId);
       return updated;
     });
-  };
+  }, [commitPackages, deleteConfirmId]);
 
-  const togglePackageSelection = (id: string) => {
+  const togglePackageSelection = useCallback((id: string) => {
     setSelectedIds((previous) => {
       const next = new Set(previous);
       if (next.has(id)) {
@@ -252,7 +306,7 @@ const App: React.FC = () => {
       }
       return next;
     });
-  };
+  }, []);
 
   const showAutoImportNotice = useCallback((message: string) => {
     setAutoImportNotice(message);
@@ -280,7 +334,8 @@ const App: React.FC = () => {
     const processedIds: string[] = [];
     let importedCount = 0;
 
-    for (const nativePkg of nativePackages) {
+    for (let index = 0; index < nativePackages.length; index += 1) {
+      const nativePkg = nativePackages[index];
       if (!nativePkg?.id || !nativePkg?.pickupCode) {
         continue;
       }
@@ -300,6 +355,9 @@ const App: React.FC = () => {
       );
       if (added) {
         importedCount += 1;
+      }
+      if ((index + 1) % IMPORT_YIELD_EVERY === 0) {
+        await yieldToMainThread();
       }
     }
 
@@ -348,10 +406,11 @@ const App: React.FC = () => {
       let successCount = 0;
       let failedCount = 0;
 
-      for (const message of orderedMessages) {
+      for (let index = 0; index < orderedMessages.length; index += 1) {
+        const message = orderedMessages[index];
         maxMessageTimestamp = Math.max(maxMessageTimestamp, message.date);
         try {
-          const info = await extractInfoFromText(message.body);
+          const info = extractInfoFromTextSync(message.body);
           const added = handleAddPackage(info, message.body, {
             sourceTimestamp: message.date,
             preferSourceTimestamp: true,
@@ -362,6 +421,9 @@ const App: React.FC = () => {
         } catch (error) {
           failedCount += 1;
           console.error('自动识别短信失败', error);
+        }
+        if ((index + 1) % IMPORT_YIELD_EVERY === 0) {
+          await yieldToMainThread();
         }
       }
 
@@ -401,6 +463,11 @@ const App: React.FC = () => {
     }
     void runAutoSmsImport();
   }, [isNative, runAutoSmsImport]);
+
+  const heatmapPackages = useMemo(
+    () => packages.filter((pkg) => pkg.status !== 'deleted'),
+    [packages]
+  );
 
   const filteredPackages = useMemo(
     () => packages.filter((pkg) => isVisibleInList(pkg, filter)),
@@ -455,24 +522,24 @@ const App: React.FC = () => {
     });
   }, [searchedPackages, sortBy, sortDirection]);
 
-  const handleSelectAllVisible = () => {
+  const handleSelectAllVisible = useCallback(() => {
     setSelectedIds(new Set(sortedPackages.map((pkg) => pkg.id)));
-  };
+  }, [sortedPackages]);
 
-  const handleClearSelection = () => {
+  const handleClearSelection = useCallback(() => {
     setSelectedIds(new Set());
-  };
+  }, []);
 
-  const handleToggleSelectionMode = () => {
+  const handleToggleSelectionMode = useCallback(() => {
     setSelectionMode((previous) => {
       if (previous) {
         setSelectedIds(new Set());
       }
       return !previous;
     });
-  };
+  }, []);
 
-  const handleBatchPickUp = () => {
+  const handleBatchPickUp = useCallback(() => {
     if (selectedIds.size === 0) return;
     const now = Date.now();
     const next = packagesRef.current.map((pkg) => {
@@ -484,9 +551,9 @@ const App: React.FC = () => {
     commitPackages(next);
     setSelectedIds(new Set());
     setSelectionMode(false);
-  };
+  }, [commitPackages, selectedIds]);
 
-  const confirmBatchDelete = () => {
+  const confirmBatchDelete = useCallback(() => {
     if (selectedIds.size === 0) {
       setBatchDeleteConfirmOpen(false);
       return;
@@ -499,7 +566,35 @@ const App: React.FC = () => {
     setSelectedIds(new Set());
     setSelectionMode(false);
     setBatchDeleteConfirmOpen(false);
-  };
+  }, [commitPackages, selectedIds]);
+
+  const openBatchDeleteConfirm = useCallback(() => {
+    setBatchDeleteConfirmOpen(true);
+  }, []);
+
+  const openAddModal = useCallback(() => {
+    setIsModalOpen(true);
+  }, []);
+
+  const closeAddModal = useCallback(() => {
+    setIsModalOpen(false);
+  }, []);
+
+  const openSmsModal = useCallback(() => {
+    setIsSmsModalOpen(true);
+  }, []);
+
+  const closeSmsModal = useCallback(() => {
+    setIsSmsModalOpen(false);
+  }, []);
+
+  const cancelDeleteConfirm = useCallback(() => {
+    setDeleteConfirmId(null);
+  }, []);
+
+  const cancelBatchDeleteConfirm = useCallback(() => {
+    setBatchDeleteConfirmOpen(false);
+  }, []);
 
   const emptyTitle =
     searchQuery.trim() || courierFilter !== 'all'
@@ -521,23 +616,28 @@ const App: React.FC = () => {
 
   return (
     <div
-      className={`min-h-screen pb-safe transition-colors duration-500 ease-in-out
+      className={`min-h-screen pb-safe transition-colors duration-300 ease-out
       ${isDarkMode ? 'bg-black' : 'bg-[#F2F2F7]'}`}
     >
       <div className="max-w-2xl mx-auto min-h-screen flex flex-col">
-        <header className="sticky top-0 z-10 px-5 pt-safe-top pb-4 glass-panel transition-colors duration-300">
+        <header className="sticky top-0 z-10 px-5 pt-safe-top pb-4 glass-panel">
           <div className="flex justify-between items-center mb-4 mt-2">
             <div className="flex items-center gap-3 min-w-0">
-              <img src="/logo.svg" alt="取件助手" className="w-12 h-12 rounded-[14px] shadow-sm flex-shrink-0" />
+              <img
+                src="/logo.svg"
+                alt="取件助手"
+                className="w-12 h-12 rounded-[14px] shadow-sm flex-shrink-0"
+                decoding="async"
+              />
               <div className="min-w-0">
-                <h1 className="text-[32px] font-bold text-gray-900 dark:text-white tracking-tight leading-tight transition-colors">
+                <h1 className="text-[32px] font-bold text-gray-900 dark:text-white tracking-tight leading-tight">
                   取件助手
                 </h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium transition-colors">
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
                   PickMeUp
                 </p>
                 {isNative && (isAutoImporting || autoImportNotice) && (
-                  <p className="text-xs text-blue-600 dark:text-blue-300 mt-1 font-medium transition-colors">
+                  <p className="text-xs text-blue-600 dark:text-blue-300 mt-1 font-medium">
                     {isAutoImporting ? '正在自动识别短信...' : autoImportNotice}
                   </p>
                 )}
@@ -545,10 +645,10 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3 flex-shrink-0">
-              <motion.button
-                whileTap={{ scale: 0.9 }}
+              <button
+                type="button"
                 onClick={toggleTheme}
-                className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-200/50 dark:bg-gray-800/50 text-gray-600 dark:text-yellow-400 backdrop-blur-md transition-colors"
+                className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-200/50 dark:bg-gray-800/50 text-gray-600 dark:text-yellow-400 active-scale"
               >
                 {isDarkMode ? (
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
@@ -563,26 +663,26 @@ const App: React.FC = () => {
                     />
                   </svg>
                 )}
-              </motion.button>
+              </button>
 
               {isNative && (
-                <motion.button
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setIsSmsModalOpen(true)}
-                  className="w-10 h-10 rounded-full flex items-center justify-center bg-green-500 text-white shadow-lg shadow-green-500/30 transition-all"
+                <button
+                  type="button"
+                  onClick={openSmsModal}
+                  className="w-10 h-10 rounded-full flex items-center justify-center bg-green-500 text-white shadow-lg shadow-green-500/30 active-scale"
                   title="从短信导入"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                     <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
                     <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
                   </svg>
-                </motion.button>
+                </button>
               )}
 
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setIsModalOpen(true)}
-                className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-blue-500/30 transition-all"
+              <button
+                type="button"
+                onClick={openAddModal}
+                className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-blue-500/30 active-scale"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
                   <path
@@ -591,14 +691,15 @@ const App: React.FC = () => {
                     clipRule="evenodd"
                   />
                 </svg>
-              </motion.button>
+              </button>
             </div>
           </div>
 
-          <div className="bg-gray-200/50 dark:bg-gray-800/50 p-1 rounded-[12px] flex backdrop-blur-md">
+          <div className="bg-gray-200/50 dark:bg-gray-800/50 p-1 rounded-[12px] flex">
             <button
+              type="button"
               onClick={() => setFilter('active')}
-              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-all duration-300 ${
+              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-colors duration-200 ${
                 filter === 'active'
                   ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
                   : 'text-gray-500 dark:text-gray-400'
@@ -607,8 +708,9 @@ const App: React.FC = () => {
               待取件
             </button>
             <button
+              type="button"
               onClick={() => setFilter('history')}
-              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-all duration-300 ${
+              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-colors duration-200 ${
                 filter === 'history'
                   ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
                   : 'text-gray-500 dark:text-gray-400'
@@ -619,8 +721,8 @@ const App: React.FC = () => {
           </div>
 
           <PackageListToolbar
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
+            searchQuery={searchInput}
+            onSearchQueryChange={handleSearchQueryChange}
             courierFilter={courierFilter}
             onCourierFilterChange={setCourierFilter}
             courierOptions={courierOptions}
@@ -628,7 +730,7 @@ const App: React.FC = () => {
             onToggleSelectionMode={handleToggleSelectionMode}
             selectedCount={selectedIds.size}
             onBatchPickUp={handleBatchPickUp}
-            onBatchDelete={() => setBatchDeleteConfirmOpen(true)}
+            onBatchDelete={openBatchDeleteConfirm}
             onSelectAll={handleSelectAllVisible}
             onClearSelection={handleClearSelection}
           />
@@ -636,13 +738,16 @@ const App: React.FC = () => {
           <div className="mt-3 flex items-center justify-between">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 px-1">
               {sortedPackages.length} 个包裹
-              {sortedPackages.length !== filteredPackages.length ? `（筛选自 ${filteredPackages.length}）` : ''}
+              {sortedPackages.length !== filteredPackages.length
+                ? `（筛选自 ${filteredPackages.length}）`
+                : ''}
             </div>
             <div className="flex items-center gap-1">
-              <div className="flex bg-gray-200/50 dark:bg-gray-800/50 rounded-lg p-0.5 backdrop-blur-md">
+              <div className="flex bg-gray-200/50 dark:bg-gray-800/50 rounded-lg p-0.5">
                 <button
+                  type="button"
                   onClick={() => setSortBy('time')}
-                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all
+                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors
                       ${
                         sortBy === 'time'
                           ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
@@ -652,8 +757,9 @@ const App: React.FC = () => {
                   时间
                 </button>
                 <button
+                  type="button"
                   onClick={() => setSortBy('location')}
-                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all
+                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors
                       ${
                         sortBy === 'location'
                           ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
@@ -664,8 +770,9 @@ const App: React.FC = () => {
                 </button>
               </div>
               <button
+                type="button"
                 onClick={() => setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'))}
-                className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-200/50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 hover:bg-gray-300/50 dark:hover:bg-gray-700/50 transition-all"
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-200/50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 active-scale"
               >
                 {sortDirection === 'asc' ? (
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -691,19 +798,19 @@ const App: React.FC = () => {
 
         <main className="px-4 pt-4 pb-32 flex-1 overflow-x-hidden">
           {filter === 'active' && !searchQuery.trim() && courierFilter === 'all' && (
-            <PickupHeatmap packages={packages.filter((pkg) => pkg.status !== 'deleted')} />
+            <PickupHeatmap packages={heatmapPackages} />
           )}
-          <AnimatePresence mode="popLayout" initial={false}>
+          <AnimatePresence initial={false}>
             {sortedPackages.length === 0 ? (
               <motion.div
                 key="empty-state"
-                initial={{ opacity: 0, scale: 0.94, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.96, y: -6 }}
-                transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
                 className="flex flex-col items-center justify-center py-24 text-center"
               >
-                <div className="w-24 h-24 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md rounded-full flex items-center justify-center mb-6 text-gray-400 dark:text-gray-500 shadow-sm">
+                <div className="w-24 h-24 bg-white/50 dark:bg-gray-800/50 rounded-full flex items-center justify-center mb-6 text-gray-400 dark:text-gray-500 shadow-sm">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -742,13 +849,13 @@ const App: React.FC = () => {
 
         <AddPackageModal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={closeAddModal}
           onAdd={handleAddPackage}
         />
 
         <SmsImportModal
           isOpen={isSmsModalOpen}
-          onClose={() => setIsSmsModalOpen(false)}
+          onClose={closeSmsModal}
           onImport={handleAddPackage}
         />
 
@@ -759,7 +866,7 @@ const App: React.FC = () => {
           confirmLabel="删除"
           confirmVariant="danger"
           onConfirm={confirmDelete}
-          onCancel={() => setDeleteConfirmId(null)}
+          onCancel={cancelDeleteConfirm}
         />
 
         <ConfirmDialog
@@ -769,7 +876,7 @@ const App: React.FC = () => {
           confirmLabel="删除"
           confirmVariant="danger"
           onConfirm={confirmBatchDelete}
-          onCancel={() => setBatchDeleteConfirmOpen(false)}
+          onCancel={cancelBatchDeleteConfirm}
         />
       </div>
     </div>

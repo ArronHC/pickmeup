@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect, memo, useCallback } from 'react';
 import { PackageData } from '../types';
 import { getCourierDisplayLabel, getCourierIconSource } from '../services/courierIcons';
 import { motion } from 'framer-motion';
@@ -12,6 +12,22 @@ interface PackageCardProps {
   onToggleSelect?: (id: string) => void;
 }
 
+const formatPackageDate = (timestamp: string): string => {
+  const date = new Date(timestamp);
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${date
+    .getHours()
+    .toString()
+    .padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+};
+
+const formatExpiresAt = (expiresAt: number): string => {
+  const expiresAtDate = new Date(expiresAt);
+  return `${expiresAtDate.getMonth() + 1}月${expiresAtDate.getDate()}日 ${expiresAtDate
+    .getHours()
+    .toString()
+    .padStart(2, '0')}:${expiresAtDate.getMinutes().toString().padStart(2, '0')}`;
+};
+
 const PackageCard: React.FC<PackageCardProps> = ({
   pkg,
   onToggleStatus,
@@ -20,25 +36,23 @@ const PackageCard: React.FC<PackageCardProps> = ({
   selected = false,
   onToggleSelect,
 }) => {
-  const date = new Date(pkg.timestamp);
-  const formattedDate = `${date.getMonth() + 1}月${date.getDate()}日 ${date
-    .getHours()
-    .toString()
-    .padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-  const expiresAtDate = pkg.expiresAt ? new Date(pkg.expiresAt) : null;
-  const formattedExpiresAt = expiresAtDate
-    ? `${expiresAtDate.getMonth() + 1}月${expiresAtDate.getDate()}日 ${expiresAtDate
-        .getHours()
-        .toString()
-        .padStart(2, '0')}:${expiresAtDate.getMinutes().toString().padStart(2, '0')}`
-    : null;
+  const formattedDate = formatPackageDate(pkg.timestamp);
+  const formattedExpiresAt = pkg.expiresAt ? formatExpiresAt(pkg.expiresAt) : null;
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<number | null>(null);
   const courierIconSource = getCourierIconSource(pkg.courier);
   const courierLabel = getCourierDisplayLabel(pkg.courier);
   const isPicked = pkg.status === 'picked' || pkg.isPickedUp;
 
-  const handleCopy = async () => {
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) {
+        window.clearTimeout(copyTimer.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(async () => {
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(pkg.pickupCode);
@@ -61,29 +75,27 @@ const PackageCard: React.FC<PackageCardProps> = ({
     } catch (error) {
       console.error('复制失败', error);
     }
-  };
+  }, [pkg.pickupCode]);
+
+  const handleToggleSelect = useCallback(() => {
+    onToggleSelect?.(pkg.id);
+  }, [onToggleSelect, pkg.id]);
+
+  const handleToggleStatusClick = useCallback(() => {
+    onToggleStatus(pkg.id);
+  }, [onToggleStatus, pkg.id]);
+
+  const handleDeleteClick = useCallback(() => {
+    onDelete(pkg.id);
+  }, [onDelete, pkg.id]);
 
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, y: 18, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
-      exit={{
-        opacity: 0,
-        x: 96,
-        scale: 0.92,
-        transition: {
-          duration: 0.28,
-          ease: [0.4, 0, 0.2, 1],
-        },
-      }}
-      transition={{
-        layout: { type: 'spring', stiffness: 420, damping: 34 },
-        opacity: { duration: 0.2 },
-        y: { type: 'spring', stiffness: 480, damping: 32 },
-        scale: { type: 'spring', stiffness: 480, damping: 32 },
-      }}
-      className={`relative overflow-hidden rounded-[20px] glass-card border mb-4
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, x: 48, transition: { duration: 0.18, ease: 'easeOut' } }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
+      className={`package-card relative overflow-hidden rounded-[20px] glass-card border mb-4
       ${
         selected
           ? 'border-blue-400/80 dark:border-blue-500/60 ring-2 ring-blue-500/20'
@@ -99,8 +111,8 @@ const PackageCard: React.FC<PackageCardProps> = ({
         {selectionMode && (
           <button
             type="button"
-            onClick={() => onToggleSelect?.(pkg.id)}
-            className="mr-3 mt-1 flex-shrink-0"
+            onClick={handleToggleSelect}
+            className="mr-3 mt-1 flex-shrink-0 active-scale"
             aria-label={selected ? '取消选择' : '选择'}
           >
             <div
@@ -134,6 +146,7 @@ const PackageCard: React.FC<PackageCardProps> = ({
                     alt={courierLabel}
                     className="w-5 h-5 object-contain"
                     loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <svg
@@ -165,12 +178,11 @@ const PackageCard: React.FC<PackageCardProps> = ({
             <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider mb-0.5">
               取件码 · 点击复制
             </div>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               type="button"
               onClick={handleCopy}
               title="点击复制取件码"
-              className={`text-left text-3xl font-bold tracking-tight font-sans transition-colors
+              className={`text-left text-3xl font-bold tracking-tight font-sans transition-colors active-scale
                 ${
                   isPicked
                     ? 'text-gray-400 dark:text-gray-600 line-through decoration-2'
@@ -178,15 +190,11 @@ const PackageCard: React.FC<PackageCardProps> = ({
                 }`}
             >
               {pkg.pickupCode}
-            </motion.button>
+            </button>
             {copied && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-1 text-xs font-semibold text-green-600 dark:text-green-400"
-              >
+              <div className="mt-1 text-xs font-semibold text-green-600 dark:text-green-400">
                 已复制
-              </motion.div>
+              </div>
             )}
           </div>
 
@@ -227,10 +235,10 @@ const PackageCard: React.FC<PackageCardProps> = ({
 
         {!selectionMode && (
           <div className="flex flex-col justify-center pl-4 border-l border-gray-100 dark:border-white/10 ml-2 gap-3">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => onToggleStatus(pkg.id)}
-              className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors backdrop-blur-sm shadow-sm
+            <button
+              type="button"
+              onClick={handleToggleStatusClick}
+              className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors shadow-sm active-scale
               ${
                 isPicked
                   ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-500'
@@ -254,12 +262,12 @@ const PackageCard: React.FC<PackageCardProps> = ({
                   />
                 </svg>
               )}
-            </motion.button>
+            </button>
 
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => onDelete(pkg.id)}
-              className="w-11 h-11 rounded-full flex items-center justify-center bg-red-100/50 dark:bg-red-900/20 text-red-500 dark:text-red-400 backdrop-blur-sm hover:bg-red-200/50 dark:hover:bg-red-900/40 transition-colors"
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              className="w-11 h-11 rounded-full flex items-center justify-center bg-red-100/50 dark:bg-red-900/20 text-red-500 dark:text-red-400 hover:bg-red-200/50 dark:hover:bg-red-900/40 transition-colors active-scale"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 <path
@@ -268,7 +276,7 @@ const PackageCard: React.FC<PackageCardProps> = ({
                   clipRule="evenodd"
                 />
               </svg>
-            </motion.button>
+            </button>
           </div>
         )}
       </div>
@@ -276,4 +284,15 @@ const PackageCard: React.FC<PackageCardProps> = ({
   );
 };
 
-export default PackageCard;
+function arePackageCardPropsEqual(previous: PackageCardProps, next: PackageCardProps): boolean {
+  return (
+    previous.pkg === next.pkg &&
+    previous.selectionMode === next.selectionMode &&
+    previous.selected === next.selected &&
+    previous.onToggleStatus === next.onToggleStatus &&
+    previous.onDelete === next.onDelete &&
+    previous.onToggleSelect === next.onToggleSelect
+  );
+}
+
+export default memo(PackageCard, arePackageCardPropsEqual);

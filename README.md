@@ -106,8 +106,8 @@ pickmeup/
 
 ## 发布版本
 
-- 当前版本：`1.4.0`
-- 最新 release notes：[`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md)
+- 当前版本：`1.4.1`
+- 最新 release notes：[`docs/releases/v1.4.1.md`](docs/releases/v1.4.1.md)
 - 设计说明：[`docs/superpowers/specs/2026-07-11-pickup-ux-and-recognition-design.md`](docs/superpowers/specs/2026-07-11-pickup-ux-and-recognition-design.md)
 
 ## 许可证

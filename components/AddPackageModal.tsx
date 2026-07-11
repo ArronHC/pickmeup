@@ -53,7 +53,7 @@ const AddPackageModal: React.FC<AddPackageModalProps> = ({ isOpen, onClose, onAd
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-[2px] pointer-events-auto"
+            className="absolute inset-0 bg-black/40 dark:bg-black/60 pointer-events-auto"
             onClick={handleClose}
           />
 
@@ -74,7 +74,7 @@ const AddPackageModal: React.FC<AddPackageModalProps> = ({ isOpen, onClose, onAd
               </h2>
               <button
                 onClick={handleClose}
-                className="w-8 h-8 flex items-center justify-center bg-gray-200/50 dark:bg-gray-700/50 rounded-full text-gray-500 dark:text-gray-300 hover:bg-gray-300/50 dark:hover:bg-gray-600/50 active-scale backdrop-blur-sm"
+                className="w-8 h-8 flex items-center justify-center bg-gray-200/50 dark:bg-gray-700/50 rounded-full text-gray-500 dark:text-gray-300 hover:bg-gray-300/50 dark:hover:bg-gray-600/50 active-scale"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                   <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -87,7 +87,7 @@ const AddPackageModal: React.FC<AddPackageModalProps> = ({ isOpen, onClose, onAd
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mb-4 p-3 bg-red-100/80 dark:bg-red-900/30 text-red-600 dark:text-red-300 text-sm font-medium rounded-xl flex items-center gap-2 backdrop-blur-md"
+                  className="mb-4 p-3 bg-red-100/80 dark:bg-red-900/30 text-red-600 dark:text-red-300 text-sm font-medium rounded-xl flex items-center gap-2"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 flex-shrink-0">
                     <path
