@@ -55,7 +55,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode }) => {
             <div>
               <h3 className={`text-lg font-semibold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>智能识别</h3>
               <p className={`text-[15px] leading-relaxed ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                自动识别短信或截图中的取件码和地点，无需手动输入。
+                粘贴短信或从手机短信导入，自动识别取件码和地点。
               </p>
             </div>
           </motion.div>

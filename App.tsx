@@ -4,37 +4,25 @@ import { loadPackages, savePackages } from './services/storageService';
 import { SmsReader, isNativePlatform } from './services/smsService';
 import { extractInfoFromText } from './services/extractionService';
 import { normalizePickupCode } from './services/pickupTextRules';
+import { detectCourierName } from './services/courierIcons';
+import {
+  normalizePackageRecord,
+  purgeExpiredPackages,
+  markPackagePicked,
+  markPackageActive,
+  markPackageDeleted,
+  isVisibleInList,
+} from './services/packageLifecycle';
 import PackageCard from './components/PackageCard';
 import AddPackageModal from './components/AddPackageModal';
 import SmsImportModal from './components/SmsImportModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import Onboarding from './components/Onboarding';
 import PickupHeatmap from './components/PickupHeatmap';
+import PackageListToolbar from './components/PackageListToolbar';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const SMS_AUTO_IMPORT_LAST_SYNC_KEY = 'pickmeup_sms_last_sync_ts';
-const PICKED_UP_EXPIRES_IN_MS = 3 * 24 * 60 * 60 * 1000;
-
-const applyPickedUpExpiryDefaults = (data: PackageData[], now = Date.now()) =>
-  data.map(pkg => {
-    if (!pkg.isPickedUp) return pkg;
-    if (typeof pkg.expiresAt === 'number' && typeof pkg.pickedUpAt === 'number') return pkg;
-
-    const timestampCandidate = Number.isNaN(new Date(pkg.timestamp).getTime())
-      ? now
-      : new Date(pkg.timestamp).getTime();
-    const baseTime = pkg.pickedUpAt ?? pkg.createdAt ?? timestampCandidate ?? now;
-
-    return {
-      ...pkg,
-      pickedUpAt: pkg.pickedUpAt ?? baseTime,
-      expiresAt: pkg.expiresAt ?? baseTime + PICKED_UP_EXPIRES_IN_MS,
-    };
-  });
-const isExpiredPickedPackage = (pkg: PackageData, now: number) =>
-  pkg.isPickedUp && typeof pkg.expiresAt === 'number' && pkg.expiresAt <= now;
-const purgeExpiredPickedPackages = (data: PackageData[], now = Date.now()) =>
-  data.filter(pkg => !isExpiredPickedPackage(pkg, now));
 
 const App: React.FC = () => {
   const [packages, setPackages] = useState<PackageData[]>([]);
@@ -49,11 +37,21 @@ const App: React.FC = () => {
   const [isAutoImporting, setIsAutoImporting] = useState(false);
   const [autoImportNotice, setAutoImportNotice] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [courierFilter, setCourierFilter] = useState('all');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const packagesRef = useRef<PackageData[]>([]);
   const autoImportLockRef = useRef(false);
   const autoImportNoticeTimerRef = useRef<number | null>(null);
 
-  // Initialize Dark Mode based on system preference or local storage
+  const commitPackages = useCallback((next: PackageData[]) => {
+    const purged = purgeExpiredPackages(next);
+    packagesRef.current = purged;
+    setPackages(purged);
+  }, []);
+
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -66,8 +64,10 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
 
-    const data = purgeExpiredPickedPackages(applyPickedUpExpiryDefaults(loadPackages()));
-    data.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const data = purgeExpiredPackages(
+      loadPackages().map((record) => normalizePackageRecord(record))
+    );
+    data.sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
     packagesRef.current = data;
     setPackages(data);
 
@@ -85,7 +85,6 @@ const App: React.FC = () => {
       setSortDirection(savedSortDirection);
     }
 
-    // 检查是否在原生环境中
     setIsNative(isNativePlatform());
   }, []);
 
@@ -101,7 +100,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Save data on change
   useEffect(() => {
     savePackages(packages);
     packagesRef.current = packages;
@@ -117,91 +115,112 @@ const App: React.FC = () => {
     setShowOnboarding(false);
   };
 
-  const handleAddPackage = useCallback((
-    info: ExtractedInfo,
-    originalText: string,
-    options?: { sourceTimestamp?: number; preferSourceTimestamp?: boolean }
-  ): boolean => {
-    const incomingCode = normalizePickupCode(info.pickupCode);
+  const handleAddPackage = useCallback(
+    (
+      info: ExtractedInfo,
+      originalText: string,
+      options?: { sourceTimestamp?: number; preferSourceTimestamp?: boolean }
+    ): boolean => {
+      const incomingCode = normalizePickupCode(info.pickupCode);
 
-    const resolvedTimestamp = (() => {
-      if (options?.preferSourceTimestamp && options.sourceTimestamp) {
-        return new Date(options.sourceTimestamp).toISOString();
-      }
-      if (info.timestamp) {
-        return info.timestamp;
-      }
-      if (options?.sourceTimestamp) {
-        return new Date(options.sourceTimestamp).toISOString();
-      }
-      return new Date().toISOString();
-    })();
+      const resolvedTimestamp = (() => {
+        if (options?.preferSourceTimestamp && options.sourceTimestamp) {
+          return new Date(options.sourceTimestamp).toISOString();
+        }
+        if (info.timestamp) {
+          return info.timestamp;
+        }
+        if (options?.sourceTimestamp) {
+          return new Date(options.sourceTimestamp).toISOString();
+        }
+        return new Date().toISOString();
+      })();
 
-    const newPackage: PackageData = {
-      id: crypto.randomUUID(),
-      pickupCode: info.pickupCode,
-      location: info.location,
-      address: info.address,
-      timestamp: resolvedTimestamp,
-      originalText: originalText,
-      isPickedUp: false,
-      createdAt: Date.now(),
-    };
+      const resolvedCourier = detectCourierName(originalText, info.courier);
 
-    const current = packagesRef.current;
-    const existingIndex = current.findIndex(pkg => normalizePickupCode(pkg.pickupCode) === incomingCode);
+      const newPackage: PackageData = {
+        id: crypto.randomUUID(),
+        pickupCode: normalizePickupCode(info.pickupCode),
+        location: info.location,
+        address: info.address,
+        courier: resolvedCourier,
+        timestamp: resolvedTimestamp,
+        originalText: originalText,
+        status: 'active',
+        isPickedUp: false,
+        createdAt: Date.now(),
+      };
 
-    if (existingIndex !== -1) {
-      const existing = current[existingIndex];
-      const shouldUpgradeLocation =
-        (existing.location === '未知' || !existing.location) &&
-        !!info.location &&
-        info.location !== '未知';
-      const shouldUpgradeAddress = !existing.address && !!info.address;
-      const shouldUpgradeOriginalText = existing.originalText === '图片识别导入' && originalText !== '图片识别导入';
+      const current = purgeExpiredPackages(packagesRef.current);
+      const existingIndex = current.findIndex(
+        (pkg) => normalizePickupCode(pkg.pickupCode) === incomingCode
+      );
 
-      if (!(shouldUpgradeLocation || shouldUpgradeAddress || shouldUpgradeOriginalText)) {
+      if (existingIndex !== -1) {
+        const existing = current[existingIndex];
+
+        // 已删除墓碑：3 天内不复活、不升级
+        if (existing.status === 'deleted') {
+          packagesRef.current = current;
+          setPackages(current);
+          return false;
+        }
+
+        const shouldUpgradeLocation =
+          (existing.location === '未知' || !existing.location) &&
+          !!info.location &&
+          info.location !== '未知';
+        const shouldUpgradeAddress = !existing.address && !!info.address;
+        const shouldUpgradeOriginalText =
+          (!existing.originalText || existing.originalText === '图片识别导入') &&
+          !!originalText &&
+          originalText !== '图片识别导入';
+        const shouldUpgradeCourier =
+          (!existing.courier || existing.courier === '未知') &&
+          !!resolvedCourier &&
+          resolvedCourier !== '未知';
+
+        if (
+          !(
+            shouldUpgradeLocation ||
+            shouldUpgradeAddress ||
+            shouldUpgradeOriginalText ||
+            shouldUpgradeCourier
+          )
+        ) {
+          packagesRef.current = current;
+          setPackages(current);
+          return false;
+        }
+
+        const updated = [...current];
+        updated[existingIndex] = {
+          ...existing,
+          location: shouldUpgradeLocation ? info.location : existing.location,
+          address: shouldUpgradeAddress ? info.address : existing.address,
+          originalText: shouldUpgradeOriginalText ? originalText : existing.originalText,
+          courier: shouldUpgradeCourier ? resolvedCourier : existing.courier,
+        };
+        commitPackages(updated);
         return false;
       }
 
-      const updated = [...current];
-      updated[existingIndex] = {
-        ...existing,
-        location: shouldUpgradeLocation ? info.location : existing.location,
-        address: shouldUpgradeAddress ? info.address : existing.address,
-        originalText: shouldUpgradeOriginalText ? originalText : existing.originalText,
-      };
-      const next = purgeExpiredPickedPackages(updated);
-      packagesRef.current = next;
-      setPackages(next);
-      return false;
-    }
-
-    const next = purgeExpiredPickedPackages([newPackage, ...current]);
-    packagesRef.current = next;
-    setPackages(next);
-    return true;
-  }, []);
+      commitPackages([newPackage, ...current]);
+      return true;
+    },
+    [commitPackages]
+  );
 
   const handleToggleStatus = (id: string) => {
     const now = Date.now();
-    const next = purgeExpiredPickedPackages(
-      packagesRef.current.map(p => {
-        if (p.id !== id) return p;
-        if (p.isPickedUp) {
-          return { ...p, isPickedUp: false, pickedUpAt: undefined, expiresAt: undefined };
-        }
-        return {
-          ...p,
-          isPickedUp: true,
-          pickedUpAt: now,
-          expiresAt: now + PICKED_UP_EXPIRES_IN_MS,
-        };
-      }),
-      now
-    );
-    packagesRef.current = next;
-    setPackages(next);
+    const next = packagesRef.current.map((pkg) => {
+      if (pkg.id !== id) return pkg;
+      if (pkg.status === 'picked' || pkg.isPickedUp) {
+        return markPackageActive(pkg);
+      }
+      return markPackagePicked(pkg, now);
+    });
+    commitPackages(next);
   };
 
   const handleDelete = (id: string) => {
@@ -209,12 +228,30 @@ const App: React.FC = () => {
   };
 
   const confirmDelete = () => {
-    if (deleteConfirmId) {
-      const next = packagesRef.current.filter(p => p.id !== deleteConfirmId);
-      packagesRef.current = next;
-      setPackages(next);
-      setDeleteConfirmId(null);
-    }
+    if (!deleteConfirmId) return;
+    const now = Date.now();
+    const next = packagesRef.current.map((pkg) =>
+      pkg.id === deleteConfirmId ? markPackageDeleted(pkg, now) : pkg
+    );
+    commitPackages(next);
+    setDeleteConfirmId(null);
+    setSelectedIds((previous) => {
+      const updated = new Set(previous);
+      updated.delete(deleteConfirmId);
+      return updated;
+    });
+  };
+
+  const togglePackageSelection = (id: string) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
   const showAutoImportNotice = useCallback((message: string) => {
@@ -234,10 +271,10 @@ const App: React.FC = () => {
       return 0;
     }
 
-    nativePackages.sort((a, b) => {
-      const aTime = a.sourceTimestamp ?? new Date(a.timestamp).getTime();
-      const bTime = b.sourceTimestamp ?? new Date(b.timestamp).getTime();
-      return aTime - bTime;
+    nativePackages.sort((left, right) => {
+      const leftTime = left.sourceTimestamp ?? new Date(left.timestamp).getTime();
+      const rightTime = right.sourceTimestamp ?? new Date(right.timestamp).getTime();
+      return leftTime - rightTime;
     });
 
     const processedIds: string[] = [];
@@ -305,7 +342,7 @@ const App: React.FC = () => {
           ? { limit: 200, sinceTimestamp: Math.max(0, savedSyncTimestamp - 60 * 1000) }
           : { limit: 200, sinceDays: 7 }
       );
-      const orderedMessages = [...smsResult.messages].sort((a, b) => a.date - b.date);
+      const orderedMessages = [...smsResult.messages].sort((left, right) => left.date - right.date);
 
       let maxMessageTimestamp = hasValidSync ? savedSyncTimestamp : 0;
       let successCount = 0;
@@ -362,58 +399,152 @@ const App: React.FC = () => {
     if (!isNative) {
       return;
     }
-
     void runAutoSmsImport();
   }, [isNative, runAutoSmsImport]);
 
-  const now = Date.now();
-  const filteredPackages = useMemo(() => packages.filter(p => {
-    if (isExpiredPickedPackage(p, now)) {
-      return false;
+  const filteredPackages = useMemo(
+    () => packages.filter((pkg) => isVisibleInList(pkg, filter)),
+    [packages, filter]
+  );
+
+  const courierOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const pkg of packages) {
+      if (pkg.status === 'deleted') continue;
+      if (pkg.courier && pkg.courier !== '未知') {
+        names.add(pkg.courier);
+      }
     }
-    return filter === 'active' ? !p.isPickedUp : p.isPickedUp;
-  }), [packages, filter, now]);
-  const sortedPackages = useMemo(() => [...filteredPackages].sort((a, b) => {
-    if (sortBy === 'time') {
-      const aTime = new Date(a.timestamp).getTime();
-      const bTime = new Date(b.timestamp).getTime();
-      return sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
+    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+  }, [packages]);
+
+  const searchedPackages = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return filteredPackages.filter((pkg) => {
+      if (courierFilter !== 'all' && (pkg.courier || '未知') !== courierFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = [
+        pkg.pickupCode,
+        normalizePickupCode(pkg.pickupCode),
+        pkg.location,
+        pkg.address || '',
+        pkg.courier || '',
+        pkg.originalText || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [filteredPackages, searchQuery, courierFilter]);
+
+  const sortedPackages = useMemo(() => {
+    return [...searchedPackages].sort((left, right) => {
+      if (sortBy === 'time') {
+        const leftTime = new Date(left.timestamp).getTime();
+        const rightTime = new Date(right.timestamp).getTime();
+        return sortDirection === 'asc' ? leftTime - rightTime : rightTime - leftTime;
+      }
+      const leftLocation = (left.location || '').toLowerCase();
+      const rightLocation = (right.location || '').toLowerCase();
+      const comparison = leftLocation.localeCompare(rightLocation, 'zh-Hans-CN');
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [searchedPackages, sortBy, sortDirection]);
+
+  const handleSelectAllVisible = () => {
+    setSelectedIds(new Set(sortedPackages.map((pkg) => pkg.id)));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleToggleSelectionMode = () => {
+    setSelectionMode((previous) => {
+      if (previous) {
+        setSelectedIds(new Set());
+      }
+      return !previous;
+    });
+  };
+
+  const handleBatchPickUp = () => {
+    if (selectedIds.size === 0) return;
+    const now = Date.now();
+    const next = packagesRef.current.map((pkg) => {
+      if (!selectedIds.has(pkg.id) || pkg.status !== 'active') {
+        return pkg;
+      }
+      return markPackagePicked(pkg, now);
+    });
+    commitPackages(next);
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  const confirmBatchDelete = () => {
+    if (selectedIds.size === 0) {
+      setBatchDeleteConfirmOpen(false);
+      return;
     }
-    const aLoc = (a.location || '').toLowerCase();
-    const bLoc = (b.location || '').toLowerCase();
-    const comparison = aLoc.localeCompare(bLoc, 'zh-Hans-CN');
-    return sortDirection === 'asc' ? comparison : -comparison;
-  }), [filteredPackages, sortBy, sortDirection]);
+    const now = Date.now();
+    const next = packagesRef.current.map((pkg) =>
+      selectedIds.has(pkg.id) ? markPackageDeleted(pkg, now) : pkg
+    );
+    commitPackages(next);
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setBatchDeleteConfirmOpen(false);
+  };
+
+  const emptyTitle =
+    searchQuery.trim() || courierFilter !== 'all'
+      ? '没有匹配的包裹'
+      : filter === 'active'
+        ? '暂无待取包裹'
+        : '暂无历史记录';
+
+  const emptyDescription =
+    searchQuery.trim() || courierFilter !== 'all'
+      ? '试试调整搜索词或快递筛选条件。'
+      : filter === 'active'
+        ? '点击右上角加号，粘贴取件短信开始管理。'
+        : '标记已取件后，记录会在这里保留 3 天。';
 
   if (showOnboarding) {
     return <Onboarding onComplete={handleCompleteOnboarding} isDarkMode={isDarkMode} />;
   }
 
   return (
-    <div className={`min-h-screen pb-safe transition-colors duration-500 ease-in-out
-      ${isDarkMode
-        ? 'bg-black'
-        : 'bg-[#F2F2F7]'
-      }`}>
-
+    <div
+      className={`min-h-screen pb-safe transition-colors duration-500 ease-in-out
+      ${isDarkMode ? 'bg-black' : 'bg-[#F2F2F7]'}`}
+    >
       <div className="max-w-2xl mx-auto min-h-screen flex flex-col">
-        {/* Glass Header */}
         <header className="sticky top-0 z-10 px-5 pt-safe-top pb-4 glass-panel transition-colors duration-300">
           <div className="flex justify-between items-center mb-4 mt-2">
-            <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="取件助手" className="w-12 h-12 rounded-[14px] shadow-sm" />
-              <div>
-                <h1 className="text-[32px] font-bold text-gray-900 dark:text-white tracking-tight leading-tight transition-colors">取件助手</h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium transition-colors">PickMeUp</p>
-              </div>
-              {isNative && (isAutoImporting || autoImportNotice) && (
-                <p className="text-xs text-blue-600 dark:text-blue-300 mt-1 font-medium transition-colors">
-                  {isAutoImporting ? '正在自动识别短信...' : autoImportNotice}
+            <div className="flex items-center gap-3 min-w-0">
+              <img src="/logo.svg" alt="取件助手" className="w-12 h-12 rounded-[14px] shadow-sm flex-shrink-0" />
+              <div className="min-w-0">
+                <h1 className="text-[32px] font-bold text-gray-900 dark:text-white tracking-tight leading-tight transition-colors">
+                  取件助手
+                </h1>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium transition-colors">
+                  PickMeUp
                 </p>
-              )}
+                {isNative && (isAutoImporting || autoImportNotice) && (
+                  <p className="text-xs text-blue-600 dark:text-blue-300 mt-1 font-medium transition-colors">
+                    {isAutoImporting ? '正在自动识别短信...' : autoImportNotice}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={toggleTheme}
@@ -425,12 +556,15 @@ const App: React.FC = () => {
                   </svg>
                 ) : (
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                    <path fillRule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z" clipRule="evenodd" />
+                    <path
+                      fillRule="evenodd"
+                      d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 )}
               </motion.button>
 
-              {/* 从短信导入按钮 (仅原生环境显示) */}
               {isNative && (
                 <motion.button
                   whileTap={{ scale: 0.9 }}
@@ -451,115 +585,158 @@ const App: React.FC = () => {
                 className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-blue-500/30 transition-all"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                  <path fillRule="evenodd" d="M12 3.75a.75.75 0 01.75.75v6.75h6.75a.75.75 0 010 1.5h-6.75v6.75a.75.75 0 01-1.5 0v-6.75H4.5a.75.75 0 010-1.5h6.75V4.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
+                  <path
+                    fillRule="evenodd"
+                    d="M12 3.75a.75.75 0 01.75.75v6.75h6.75a.75.75 0 010 1.5h-6.75v6.75a.75.75 0 01-1.5 0v-6.75H4.5a.75.75 0 010-1.5h6.75V4.5a.75.75 0 01.75-.75z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </motion.button>
             </div>
           </div>
 
-          {/* Glass Segmented Control */}
           <div className="bg-gray-200/50 dark:bg-gray-800/50 p-1 rounded-[12px] flex backdrop-blur-md">
             <button
               onClick={() => setFilter('active')}
-              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-all duration-300 ${filter === 'active'
+              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-all duration-300 ${
+                filter === 'active'
                   ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
                   : 'text-gray-500 dark:text-gray-400'
-                }`}
+              }`}
             >
               待取件
             </button>
             <button
               onClick={() => setFilter('history')}
-              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-all duration-300 ${filter === 'history'
+              className={`flex-1 py-1.5 text-[13px] font-semibold rounded-[10px] transition-all duration-300 ${
+                filter === 'history'
                   ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
                   : 'text-gray-500 dark:text-gray-400'
-                }`}
+              }`}
             >
               已取件
             </button>
           </div>
 
-          {/* Sort Controls */}
+          <PackageListToolbar
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            courierFilter={courierFilter}
+            onCourierFilterChange={setCourierFilter}
+            courierOptions={courierOptions}
+            selectionMode={selectionMode}
+            onToggleSelectionMode={handleToggleSelectionMode}
+            selectedCount={selectedIds.size}
+            onBatchPickUp={handleBatchPickUp}
+            onBatchDelete={() => setBatchDeleteConfirmOpen(true)}
+            onSelectAll={handleSelectAllVisible}
+            onClearSelection={handleClearSelection}
+          />
+
           <div className="mt-3 flex items-center justify-between">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 px-1">
-              {filteredPackages.length} 个包裹
+              {sortedPackages.length} 个包裹
+              {sortedPackages.length !== filteredPackages.length ? `（筛选自 ${filteredPackages.length}）` : ''}
             </div>
             <div className="flex items-center gap-1">
-               <div className="flex bg-gray-200/50 dark:bg-gray-800/50 rounded-lg p-0.5 backdrop-blur-md">
-                  <button
-                    onClick={() => setSortBy('time')}
-                    className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all
-                      ${sortBy === 'time'
-                        ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400'
+              <div className="flex bg-gray-200/50 dark:bg-gray-800/50 rounded-lg p-0.5 backdrop-blur-md">
+                <button
+                  onClick={() => setSortBy('time')}
+                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all
+                      ${
+                        sortBy === 'time'
+                          ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400'
                       }`}
-                  >
-                    时间
-                  </button>
-                  <button
-                    onClick={() => setSortBy('location')}
-                    className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all
-                      ${sortBy === 'location'
-                        ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400'
+                >
+                  时间
+                </button>
+                <button
+                  onClick={() => setSortBy('location')}
+                  className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all
+                      ${
+                        sortBy === 'location'
+                          ? 'bg-white dark:bg-slate-600 text-black dark:text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400'
                       }`}
-                  >
-                    地点
-                  </button>
-               </div>
+                >
+                  地点
+                </button>
+              </div>
               <button
-                onClick={() => setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'))}
+                onClick={() => setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'))}
                 className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-200/50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 hover:bg-gray-300/50 dark:hover:bg-gray-700/50 transition-all"
               >
                 {sortDirection === 'asc' ? (
-                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                     <path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" />
-                   </svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path
+                      fillRule="evenodd"
+                      d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
                 ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                      <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
-                    </svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path
+                      fillRule="evenodd"
+                      d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
                 )}
               </button>
             </div>
           </div>
         </header>
 
-        {/* Main List */}
         <main className="px-4 pt-4 pb-32 flex-1 overflow-x-hidden">
-          {filter === 'active' && <PickupHeatmap packages={packages} />}
-          <AnimatePresence mode='wait'>
-          {filteredPackages.length === 0 ? (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="flex flex-col items-center justify-center py-24 text-center"
-            >
-              <div className="w-24 h-24 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md rounded-full flex items-center justify-center mb-6 text-gray-400 dark:text-gray-500 shadow-sm">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3.251l4.286 4.286m-4.286-4.286L7.964 15.25m4.286-4.286V2.25" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">暂无包裹</h3>
-              <p className="text-gray-500 dark:text-gray-400 mt-2 text-[15px] max-w-[200px]">
-                {filter === 'active'
-                  ? "点击右上角的加号，开始智能管理您的快递。"
-                  : "您还没有已取件的历史记录。"}
-              </p>
-            </motion.div>
-          ) : (
-            <div className="space-y-4">
-              {sortedPackages.map(pkg => (
+          {filter === 'active' && !searchQuery.trim() && courierFilter === 'all' && (
+            <PickupHeatmap packages={packages.filter((pkg) => pkg.status !== 'deleted')} />
+          )}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {sortedPackages.length === 0 ? (
+              <motion.div
+                key="empty-state"
+                initial={{ opacity: 0, scale: 0.94, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: -6 }}
+                transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                className="flex flex-col items-center justify-center py-24 text-center"
+              >
+                <div className="w-24 h-24 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md rounded-full flex items-center justify-center mb-6 text-gray-400 dark:text-gray-500 shadow-sm">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="w-10 h-10"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3.251l4.286 4.286m-4.286-4.286L7.964 15.25m4.286-4.286V2.25"
+                    />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{emptyTitle}</h3>
+                <p className="text-gray-500 dark:text-gray-400 mt-2 text-[15px] max-w-[240px]">
+                  {emptyDescription}
+                </p>
+              </motion.div>
+            ) : (
+              sortedPackages.map((pkg) => (
                 <PackageCard
                   key={pkg.id}
                   pkg={pkg}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(pkg.id)}
+                  onToggleSelect={togglePackageSelection}
                 />
-              ))}
-            </div>
-          )}
+              ))
+            )}
           </AnimatePresence>
         </main>
 
@@ -576,14 +753,23 @@ const App: React.FC = () => {
         />
 
         <ConfirmDialog
-          isOpen={deleteConfirmId !== null}
-          title="删除取件信息"
-          message="确定要删除这条取件信息吗？删除后无法恢复。"
+          isOpen={!!deleteConfirmId}
+          title="删除包裹"
+          message="删除后 3 天内不会再次自动导入相同取件码。"
           confirmLabel="删除"
-          cancelLabel="取消"
           confirmVariant="danger"
           onConfirm={confirmDelete}
           onCancel={() => setDeleteConfirmId(null)}
+        />
+
+        <ConfirmDialog
+          isOpen={batchDeleteConfirmOpen}
+          title="批量删除"
+          message={`将删除已选的 ${selectedIds.size} 个包裹，3 天内不会重复导入。`}
+          confirmLabel="删除"
+          confirmVariant="danger"
+          onConfirm={confirmBatchDelete}
+          onCancel={() => setBatchDeleteConfirmOpen(false)}
         />
       </div>
     </div>

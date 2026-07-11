@@ -13,6 +13,7 @@ export interface TemplateMatchResult {
   pickupCode?: string;
   location?: string;
   address?: string;
+  courier?: string;
 }
 
 // 通过模板匹配提取快递信息
@@ -31,7 +32,7 @@ export function matchTemplates(text: string, senderHint?: string): TemplateMatch
   return { matched: false };
 }
 
-// 获取候选模板列表：senderHint 命中的排前面，正文中含快递名称的排其次
+// 获取候选模板列表：senderHint 命中的排前面，正文中含快递名称或发送者特征的排其次
 function getCandidateTemplates(text: string, senderHint?: string): CourierTemplate[] {
   const senderMatched: CourierTemplate[] = [];
   const bodyMatched: CourierTemplate[] = [];
@@ -39,8 +40,10 @@ function getCandidateTemplates(text: string, senderHint?: string): CourierTempla
 
   for (const template of COURIER_TEMPLATES) {
     const matchesSender = senderHint
-      && template.senderPatterns.some((p) => p.test(senderHint));
-    const bodyContainsCourier = text.includes(template.courier);
+      && template.senderPatterns.some((pattern) => pattern.test(senderHint));
+    const bodyContainsCourier =
+      (template.courier !== '未知' && text.includes(template.courier)) ||
+      template.senderPatterns.some((pattern) => pattern.test(text));
 
     if (matchesSender) {
       senderMatched.push(template);
@@ -90,6 +93,7 @@ function tryMatchTemplate(text: string, template: CourierTemplate): TemplateMatc
       pickupCode,
       location: resolvedLocation,
       address: resolvedAddress,
+      courier: template.courier,
     };
   }
 

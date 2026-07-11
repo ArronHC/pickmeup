@@ -11,6 +11,29 @@ export interface CourierTemplate {
 }
 
 export const COURIER_TEMPLATES: CourierTemplate[] = [
+  // 驿小哥 / 到店提取（通用，优先匹配「可凭…到店…提取」）
+  {
+    courier: '未知',
+    senderPatterns: [/驿小哥/i, /驿站/i],
+    bodyPatterns: [
+      {
+        pattern:
+          /可凭\s*([A-Za-z0-9]{1,4}(?:\s*[-－]\s*[A-Za-z0-9]{1,4}){1,4})\s*到店\s*([^，。；,;\n]{2,48}?)(?:提取|取件|取货)/i,
+        groups: { pickupCode: 1, location: 2 },
+      },
+      {
+        pattern:
+          /可凭\s*([A-Za-z0-9-]{4,16})\s*到店\s*([^，。；,;\n]{2,48}?)(?:提取|取件|取货)/i,
+        groups: { pickupCode: 1, location: 2 },
+      },
+      {
+        pattern:
+          /已到\s*([^，。；,;\n]{2,40})[，,]?\s*可凭\s*([A-Za-z0-9]{1,4}(?:\s*[-－]\s*[A-Za-z0-9]{1,4}){1,4})/i,
+        groups: { pickupCode: 2, location: 1 },
+      },
+    ],
+  },
+
   // 丰巢快递柜
   {
     courier: "丰巢",
